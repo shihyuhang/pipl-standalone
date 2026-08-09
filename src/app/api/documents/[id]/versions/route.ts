@@ -1,0 +1,10 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { createDocumentVersion } from "@/lib/db";
+
+export const runtime = "nodejs";
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  const parsed = z.object({ content: z.string().min(20), changeSummary: z.string().min(2) }).safeParse(await request.json());
+  if (!parsed.success) return NextResponse.json({ message: "请填写版本内容和修改说明。" }, { status: 400 });
+  return NextResponse.json(createDocumentVersion((await context.params).id, parsed.data), { status: 201 });
+}

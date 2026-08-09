@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pipl.local/schemas/fact-schema.v1.json",
+  "title": "小型个人信息处理者企业事实记录",
+  "description": "事实实例、事实快照及首期事实目录。AI 提取只能创建 candidate，只有用户或获授权人员可以确认。",
+  "type": "object",
+  "required": ["schemaVersion", "facts"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "tenantId": { "$ref": "#/$defs/uuid" },
+    "facts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/factRecord" }
+    },
+    "snapshot": { "$ref": "#/$defs/factSnapshot" }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "factCode": {
+      "type": "string",
+      "enum": [
+        "ORG.LEGAL_NAME", "ORG.CREDIT_CODE", "ORG.TYPE", "ORG.OWNERSHIP",
+        "ORG.REGISTERED_REGION", "ORG.OPERATING_REGIONS", "ORG.INDUSTRY",
+        "ORG.BUSINESS_MODEL", "ORG.MAIN_BUSINESS", "ORG.SERVICE_CHANNELS",
+        "ORG.PROCESSING_ROLE", "ORG.PLATFORM_ONLY", "ORG.CIIO_STATUS",
+        "ORG.EMPLOYEE_COUNT", "ORG.PRIVACY_CONTACT_NAME", "ORG.PRIVACY_CONTACT_ROLE",
+        "ORG.PRIVACY_CONTACT_CHANNEL", "ORG.REVIEWER", "ORG.WORKING_LANGUAGES",
+        "SCOPE.PERSON_COUNT", "SCOPE.COUNT_AS_OF_DATE", "SCOPE.COUNT_METHOD",
+        "SCOPE.COUNT_SYSTEMS", "SCOPE.DELETED_EXCLUDED", "SCOPE.DEDUP_METHOD",
+        "SCOPE.COUNT_EVIDENCE", "SCOPE.THRESHOLD_STATUS",
+        "PERSON.PRESENT", "PERSON.ESTIMATED_COUNT", "PERSON.RELATIONSHIP",
+        "PERSON.CONTACT_CHANNEL", "PERSON.UNDER_14_POSSIBLE", "PERSON.SENSITIVE_DATA_POSSIBLE",
+        "ACT.NAME", "ACT.SCENARIO_TYPE", "ACT.STATUS", "ACT.OWNER",
+        "ACT.PERSON_CATEGORIES", "ACT.PURPOSES", "ACT.DATA_FIELDS", "ACT.SOURCES",
+        "ACT.COLLECTION_METHODS", "ACT.CHANNELS", "ACT.SYSTEMS", "ACT.MANDATORY_FIELDS",
+        "ACT.OPTIONAL_FIELDS", "ACT.NECESSITY_REASON", "ACT.LEGAL_BASIS_FACTS",
+        "ACT.ACCESS_ROLES", "ACT.THIRD_PARTY_RELATIONS", "ACT.STORAGE_LOCATIONS",
+        "ACT.OVERSEAS_ACCESS", "ACT.RETENTION_RULES", "ACT.DELETION_METHOD",
+        "ACT.NOTICE_VERSION", "ACT.CONSENT_MECHANISM", "ACT.RIGHTS_CHANNEL",
+        "ACT.AUTOMATED_DECISION", "ACT.PUBLIC_DISCLOSURE", "ACT.PUBLIC_PLACE_DEVICE",
+        "ACT.PUBLIC_SOURCE_DATA", "ACT.PERSON_COUNT", "ACT.LAST_CONFIRMED_AT",
+        "DATA.DISPLAY_NAME", "DATA.CATEGORY", "DATA.IS_PERSONAL_INFORMATION",
+        "DATA.IS_SENSITIVE", "DATA.SENSITIVE_CATEGORY", "DATA.REQUIRED",
+        "DATA.PURPOSE_REFS", "DATA.SOURCE", "DATA.PRECISION", "DATA.VOLUME",
+        "PURPOSE.NAME", "PURPOSE.SERVICE_NECESSITY", "PURPOSE.ALTERNATIVE_AVAILABLE",
+        "PURPOSE.SECONDARY_USE", "PURPOSE.MARKETING", "PURPOSE.PROFILING",
+        "PURPOSE.EXPECTED_BY_PERSON",
+        "SYS.NAME", "SYS.PROVIDER", "SYS.OWNER_COUNTRY", "SYS.HOSTING_COUNTRIES",
+        "SYS.BACKUP_COUNTRIES", "SYS.ADMIN_COUNTRIES", "SYS.DATA_FIELD_REFS",
+        "SYS.ACCESS_ROLES", "SYS.AUTHENTICATION", "SYS.ENCRYPTION", "SYS.LOGGING",
+        "SYS.DELETION_CAPABILITY", "SYS.CONTRACT_REF",
+        "PARTY.NAME", "PARTY.ROLE_CANDIDATE", "PARTY.PURPOSE", "PARTY.DATA_FIELDS",
+        "PARTY.PERSON_CATEGORIES", "PARTY.CONTRACT", "PARTY.SUPERVISION",
+        "PARTY.SECURITY_INCIDENT_CHANNEL", "PARTY.COUNTRIES",
+        "XFER.EXISTS", "XFER.MODE", "XFER.RECIPIENT", "XFER.COUNTRY_REGION",
+        "XFER.PURPOSE", "XFER.DATA_FIELDS", "XFER.PERSON_CATEGORIES",
+        "XFER.NON_SENSITIVE_COUNT_YTD", "XFER.SENSITIVE_COUNT_YTD", "XFER.FREQUENCY",
+        "XFER.PROTECTION_MEASURES", "XFER.PROCEDURE_EVIDENCE", "XFER.FOREIGN_JUDICIAL_REQUEST",
+        "DOC.NOTICE.TYPE", "DOC.NOTICE.SCOPE", "DOC.NOTICE.STATUS",
+        "DOC.NOTICE.VERSION_NUMBER", "DOC.NOTICE.EFFECTIVE_FROM", "DOC.NOTICE.EFFECTIVE_TO",
+        "DOC.NOTICE.CONTENT_HASH", "DOC.NOTICE.FACT_SNAPSHOT_ID",
+        "DOC.NOTICE.REGULATION_VERSION_REFS", "DOC.NOTICE.PUBLISHED_CHANNELS",
+        "DOC.NOTICE.PUBLICATION_EVIDENCE", "DOC.NOTICE.CHANGE_SUMMARY", "DOC.NOTICE.APPROVED_BY",
+        "NOTICE.BEFORE_PROCESSING", "NOTICE.CHANNEL", "NOTICE.PROMINENCE",
+        "NOTICE.CHANGE_NOTIFICATION", "NOTICE.EXCEPTION_REASON",
+        "CONSENT.REQUIRED_INPUT", "CONSENT.MECHANISM", "CONSENT.RECORD_FIELDS",
+        "CONSENT.SEPARATE", "CONSENT.WRITTEN", "CONSENT.WITHDRAWAL",
+        "CONSENT.RECONSENT_ON_CHANGE",
+        "RET.RULE", "RET.JUSTIFICATION", "RET.TRIGGER", "RET.ACTION",
+        "RET.LEGAL_HOLD", "RET.EXECUTION_OWNER", "RET.LAST_EXECUTION_EVIDENCE",
+        "RIGHTS.CHANNELS", "RIGHTS.IDENTITY_VERIFICATION", "RIGHTS.OWNER",
+        "RIGHTS.INTERNAL_TARGET", "RIGHTS.TRACKING", "RIGHTS.RESPONSE_TEMPLATE",
+        "RIGHTS.REJECTION_REASON", "RIGHTS.LAST_CASE_DATE",
+        "GOV.POLICY_EXISTS", "GOV.ROLE_ASSIGNMENT", "GOV.CLASSIFICATION",
+        "GOV.PIPIA_PROCESS", "GOV.AUDIT_PROCESS", "GOV.COMPLAINT_PROCESS",
+        "GOV.TRAINING_PLAN", "GOV.LAST_TRAINING", "GOV.ACCOUNTABILITY",
+        "SEC.ACCESS_CONTROL", "SEC.ENCRYPTION", "SEC.PSEUDONYMIZATION",
+        "SEC.LOGGING", "SEC.BACKUP_RECOVERY", "SEC.INCIDENT_PLAN", "SEC.LAST_DRILL"
+      ]
+    },
+    "factRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "factId", "tenantId", "factCode", "subjectType", "subjectId",
+        "valueType", "value", "status", "sourceType", "effectiveFrom",
+        "sensitivityLevel", "createdAt"
+      ],
+      "properties": {
+        "factId": { "$ref": "#/$defs/uuid" },
+        "tenantId": { "$ref": "#/$defs/uuid" },
+        "factCode": { "$ref": "#/$defs/factCode" },
+        "subjectType": {
+          "enum": ["enterprise", "person_category", "processing_activity", "data_field", "purpose", "system", "third_party", "document", "incident"]
+        },
+        "subjectId": { "$ref": "#/$defs/uuid" },
+        "valueType": { "enum": ["boolean", "enum", "number", "string", "date", "datetime", "object", "list"] },
+        "value": {},
+        "status": { "enum": ["candidate", "confirmed", "disputed", "expired", "superseded"] },
+        "sourceType": {
+          "enum": ["user_answer", "uploaded_document", "system_import", "public_registry", "expert_opinion", "ai_inference"]
+        },
+        "sourceRef": { "type": ["string", "null"] },
+        "effectiveFrom": { "type": "string", "format": "date" },
+        "effectiveTo": { "type": ["string", "null"], "format": "date" },
+        "validUntil": { "type": ["string", "null"], "format": "date" },
+        "confirmedBy": { "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }] },
+        "confirmedAt": { "type": ["string", "null"], "format": "date-time" },
+        "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "sensitivityLevel": { "enum": ["public", "internal", "confidential", "sensitive"] },
+        "supersedesFactId": { "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }] },
+        "assessmentSessionId": { "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "metadata": { "type": "object", "additionalProperties": true }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "sourceType": { "const": "ai_inference" } }, "required": ["sourceType"] },
+          "then": { "properties": { "status": { "const": "candidate" } } }
+        },
+        {
+          "if": { "properties": { "status": { "const": "confirmed" } }, "required": ["status"] },
+          "then": { "required": ["confirmedBy", "confirmedAt"] }
+        }
+      ]
+    },
+    "factSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshotId", "tenantId", "asOf", "factIds", "contentHash", "createdBy", "createdAt"],
+      "properties": {
+        "snapshotId": { "$ref": "#/$defs/uuid" },
+        "tenantId": { "$ref": "#/$defs/uuid" },
+        "asOf": { "type": "string", "format": "date-time" },
+        "factIds": { "type": "array", "items": { "$ref": "#/$defs/uuid" }, "minItems": 1, "uniqueItems": true },
+        "contentHash": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+        "purpose": { "enum": ["assessment", "official_form", "document_publication", "audit_export"] },
+        "createdBy": { "$ref": "#/$defs/uuid" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "x-runtime-rules": [
+    "value must be validated against the fact catalog for its factCode",
+    "ai_inference can only create candidate facts",
+    "confirmed facts require confirmedBy and confirmedAt",
+    "confirmed facts are versioned by supersession and never overwritten",
+    "signed snapshots are immutable",
+    "ORG.OWNERSHIP=foreign_invested does not imply XFER.EXISTS=true",
+    "SCOPE.PERSON_COUNT counts unique natural persons and excludes deleted records"
+  ],
+  "x-fact-catalog": {
+    "ORG.TYPE": { "subjectType": "enterprise", "valueType": "enum", "values": ["company", "branch", "partnership", "individual_business", "institution", "other"], "validityDays": 730 },
+    "ORG.OWNERSHIP": { "subjectType": "enterprise", "valueType": "enum", "values": ["domestic", "foreign_invested", "foreign_branch", "mixed", "unknown"], "validityDays": 730 },
+    "ORG.BUSINESS_MODEL": { "subjectType": "enterprise", "valueType": "enum", "values": ["B2B", "B2C", "both", "internal_only"], "validityDays": 365 },
+    "ORG.PROCESSING_ROLE": { "subjectType": "enterprise", "valueType": "enum", "values": ["independent_processor", "joint_processor", "entrusted_processor", "mixed", "unknown"], "validityDays": 365, "officialMappings": ["A04", "A05"] },
+    "ORG.CIIO_STATUS": { "subjectType": "enterprise", "valueType": "enum", "values": ["yes", "no", "unknown"], "validityDays": 365, "officialMappings": ["A14"] },
+    "SCOPE.PERSON_COUNT": { "subjectType": "enterprise", "valueType": "number_or_range", "minimum": 0, "validityDays": 90 },
+    "SCOPE.THRESHOLD_STATUS": { "subjectType": "enterprise", "valueType": "enum", "derived": true, "values": ["under_60k", "60k_80k", "80k_95k", "95k_100k", "at_or_above_100k", "unknown"] },
+    "PERSON.PRESENT": { "subjectType": "person_category", "valueType": "boolean", "validityDays": 180 },
+    "PERSON.UNDER_14_POSSIBLE": { "subjectType": "person_category", "valueType": "enum", "values": ["yes", "no", "unknown"], "validityDays": 180, "officialMappings": ["A12", "A13", "P01", "P05"] },
+    "ACT.STATUS": { "subjectType": "processing_activity", "valueType": "enum", "values": ["planned", "active", "suspended", "ended"] },
+    "ACT.AUTOMATED_DECISION": { "subjectType": "processing_activity", "valueType": "enum", "values": ["yes", "no", "unknown"], "validityDays": 180, "officialMappings": ["A08", "P02"] },
+    "ACT.PUBLIC_DISCLOSURE": { "subjectType": "processing_activity", "valueType": "enum", "values": ["yes", "no", "unknown"], "validityDays": 180, "officialMappings": ["A09", "P03"] },
+    "ACT.PUBLIC_PLACE_DEVICE": { "subjectType": "processing_activity", "valueType": "enum", "values": ["yes", "no", "unknown"], "validityDays": 180, "officialMappings": ["A10", "P05"] },
+    "ACT.PUBLIC_SOURCE_DATA": { "subjectType": "processing_activity", "valueType": "enum", "values": ["yes", "no", "unknown"], "validityDays": 180, "officialMappings": ["A11", "P05"] },
+    "DATA.IS_PERSONAL_INFORMATION": { "subjectType": "data_field", "valueType": "enum", "values": ["yes", "no", "unknown"] },
+    "DATA.IS_SENSITIVE": { "subjectType": "data_field", "valueType": "enum", "values": ["yes", "no", "unknown"], "officialMappings": ["A12", "P01"] },
+    "PARTY.ROLE_CANDIDATE": { "subjectType": "third_party", "valueType": "enum", "values": ["entrusted", "joint", "recipient", "independent", "unknown"], "officialMappings": ["A04", "A05", "A07", "P03"] },
+    "XFER.EXISTS": { "subjectType": "processing_activity", "valueType": "enum", "values": ["yes", "no", "unknown"], "validityDays": 180, "officialMappings": ["A14", "P04"], "independentOf": ["ORG.OWNERSHIP"] },
+    "DOC.NOTICE.STATUS": { "subjectType": "document", "valueType": "enum", "values": ["draft", "pending_confirmation", "under_review", "approved", "scheduled", "effective", "superseded", "archived"], "officialMappings": ["A02", "A03"] },
+    "CONSENT.SEPARATE": { "subjectType": "processing_activity", "valueType": "enum", "values": ["yes", "no", "not_applicable", "unknown"], "officialMappings": ["A01", "A07", "A09", "A12"] },
+    "RET.RULE": { "subjectType": "processing_activity", "valueType": "object", "validityDays": 180, "officialMappings": ["A02", "A15"] },
+    "RIGHTS.CHANNELS": { "subjectType": "enterprise", "valueType": "list", "validityDays": 180, "officialMappings": ["A02", "A16", "A17"] },
+    "GOV.PIPIA_PROCESS": { "subjectType": "enterprise", "valueType": "object", "validityDays": 365, "officialMappings": ["A18", "A22"] },
+    "SEC.ACCESS_CONTROL": { "subjectType": "system", "valueType": "object", "validityDays": 180, "officialMappings": ["A18", "A19"] },
+    "SEC.INCIDENT_PLAN": { "subjectType": "enterprise", "valueType": "object", "validityDays": 365, "officialMappings": ["A18", "A23", "A24"] }
+  }
+}

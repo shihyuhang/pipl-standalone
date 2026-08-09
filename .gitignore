@@ -1,0 +1,12 @@
+node_modules/
+.next/
+.pnpm-store/
+.tools/
+.agents/
+tmp/
+.env
+.env.local
+data/*.db
+data/*.db-*
+*.log
+*.tsbuildinfo

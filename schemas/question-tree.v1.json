@@ -1,0 +1,965 @@
+{
+  "$schema": "https://pipl.local/schemas/question-tree-config.v1.json",
+  "treeCode": "SMALL_PROCESSOR_ONBOARDING_AND_SCENARIO",
+  "version": "1.0.0",
+  "title": "小型个人信息处理者企业画像与场景问题树",
+  "expressionLanguage": "PIPL-CEL-1",
+  "defaults": {
+    "allowUnknown": true,
+    "saveMode": "autosave",
+    "pageSize": 4,
+    "candidateFactStatus": "candidate",
+    "confirmationRequired": true
+  },
+  "phases": [
+    {
+      "code": "QUALIFICATION",
+      "title": "先确认是否适合本平台",
+      "order": 10,
+      "completionRule": "all_required_answered",
+      "questionCodes": [
+        "Q-ORG-001", "Q-ORG-002", "Q-ORG-003", "Q-ROLE-001",
+        "Q-SCOPE-001", "Q-SCOPE-002", "Q-SUBJ-001", "Q-RISK-001",
+        "Q-RISK-002", "Q-XFER-001", "Q-GOV-001"
+      ]
+    },
+    {
+      "code": "SCENARIO_CORE",
+      "title": "说明这项业务怎样使用个人信息",
+      "order": 20,
+      "completionRule": "all_visible_required_answered",
+      "questionCodes": [
+        "Q-ACT-001", "Q-ACT-002", "Q-ACT-003", "Q-ACT-004", "Q-ACT-005",
+        "Q-ACT-006", "Q-ACT-007", "Q-ACT-008", "Q-ACT-009", "Q-ACT-010"
+      ]
+    },
+    {
+      "code": "B2B_CONTACT",
+      "title": "客户和供应商联系人",
+      "order": 30,
+      "showWhen": "scenario.type == 'b2b_contact'",
+      "questionCodes": [
+        "Q-B2B-001", "Q-B2B-002", "Q-B2B-003", "Q-B2B-004",
+        "Q-B2B-005", "Q-B2B-006", "Q-B2B-007"
+      ]
+    },
+    {
+      "code": "HR",
+      "title": "招聘和员工管理",
+      "order": 40,
+      "showWhen": "scenario.type in ['recruitment','employee_management']",
+      "questionCodes": [
+        "Q-HR-001", "Q-HR-002", "Q-HR-003", "Q-HR-004",
+        "Q-HR-005", "Q-HR-006", "Q-HR-007", "Q-HR-008"
+      ]
+    },
+    {
+      "code": "FOREIGN_INVESTED",
+      "title": "集团系统和境外访问",
+      "order": 50,
+      "showWhen": "fact('ORG.OWNERSHIP') in ['foreign_invested','foreign_branch','mixed'] || answer('Q-ACT-007').containsOverseas == true || answer('Q-HR-005') == 'global_system' || answer('Q-B2B-005').containsGlobalSystem == true",
+      "questionCodes": [
+        "Q-FIE-001", "Q-FIE-002", "Q-FIE-003", "Q-FIE-004", "Q-FIE-005",
+        "Q-FIE-006", "Q-FIE-007", "Q-FIE-008", "Q-FIE-009", "Q-FIE-010"
+      ]
+    },
+    {
+      "code": "SENSITIVE",
+      "title": "敏感个人信息",
+      "order": 60,
+      "showWhen": "context.hasSensitiveData == true || context.sensitiveDataUnknown == true",
+      "questionCodes": [
+        "Q-SENS-001", "Q-SENS-002", "Q-SENS-003", "Q-SENS-004",
+        "Q-SENS-005", "Q-SENS-006"
+      ]
+    },
+    {
+      "code": "THIRD_PARTY",
+      "title": "系统供应商和其他合作方",
+      "order": 70,
+      "showWhen": "context.hasThirdParty == true",
+      "questionCodes": [
+        "Q-PARTY-001", "Q-PARTY-002", "Q-PARTY-003", "Q-PARTY-004",
+        "Q-PARTY-005", "Q-PARTY-006"
+      ]
+    },
+    {
+      "code": "EXECUTION",
+      "title": "确认现有做法",
+      "order": 80,
+      "questionCodes": [
+        "Q-NOTICE-001", "Q-NOTICE-002", "Q-CONSENT-001", "Q-RET-001",
+        "Q-RET-002", "Q-RIGHTS-001", "Q-SEC-001", "Q-SEC-002"
+      ]
+    },
+    {
+      "code": "FACT_CONFIRMATION",
+      "title": "确认系统理解的情况",
+      "order": 90,
+      "kind": "generated_fact_summary",
+      "blocking": true
+    }
+  ],
+  "questions": [
+    {
+      "code": "Q-ORG-001",
+      "version": 1,
+      "prompt": "贵单位是什么类型？",
+      "answerType": "single",
+      "required": true,
+      "options": [
+        { "value": "company", "label": "公司" },
+        { "value": "branch", "label": "分支机构" },
+        { "value": "partnership", "label": "合伙企业" },
+        { "value": "individual_business", "label": "个体工商户" },
+        { "value": "institution", "label": "事业单位或其他组织" },
+        { "value": "other", "label": "其他" }
+      ],
+      "factMappings": [{ "factCode": "ORG.TYPE", "transform": "selected_value" }],
+      "validityDays": 730
+    },
+    {
+      "code": "Q-ORG-002",
+      "version": 1,
+      "prompt": "贵单位的主要业务面向谁？",
+      "helpText": "这只用于推荐适合的业务场景。即使只面向企业，联系人和员工信息仍可能是个人信息。",
+      "answerType": "single",
+      "required": true,
+      "options": [
+        { "value": "B2B", "label": "主要面向企业" },
+        { "value": "B2C", "label": "主要面向个人" },
+        { "value": "both", "label": "两者都有" },
+        { "value": "internal_only", "label": "主要是内部员工管理" }
+      ],
+      "factMappings": [{ "factCode": "ORG.BUSINESS_MODEL", "transform": "selected_value" }],
+      "validityDays": 365
+    },
+    {
+      "code": "Q-ORG-003",
+      "version": 1,
+      "prompt": "贵单位是否为外商投资企业或外国企业在华分支？",
+      "helpText": "选择“是”不会自动判断存在数据出境，系统还会询问实际使用的集团系统和访问方式。",
+      "answerType": "single",
+      "required": true,
+      "allowUnknown": true,
+      "options": [
+        { "value": "foreign_invested", "label": "外商投资企业" },
+        { "value": "foreign_branch", "label": "外国企业在华分支" },
+        { "value": "domestic", "label": "不是" },
+        { "value": "unknown", "label": "不清楚" }
+      ],
+      "factMappings": [{ "factCode": "ORG.OWNERSHIP", "transform": "selected_value" }],
+      "validityDays": 730,
+      "riskTags": ["foreign_invested_not_equal_cross_border"]
+    },
+    {
+      "code": "Q-ROLE-001",
+      "version": 1,
+      "prompt": "贵单位通常由自己决定为什么收集和怎样使用这些信息吗？",
+      "answerType": "single",
+      "required": true,
+      "allowUnknown": true,
+      "options": [
+        { "value": "independent_processor", "label": "主要由我们自己决定" },
+        { "value": "entrusted_processor", "label": "主要按照客户或其他公司的指示处理" },
+        { "value": "mixed", "label": "两种情况都有" },
+        { "value": "unknown", "label": "不清楚" }
+      ],
+      "factMappings": [{ "factCode": "ORG.PROCESSING_ROLE", "transform": "selected_value", "status": "candidate" }],
+      "blockingLevel": "preview_only",
+      "officialItemMappings": ["A04", "A05"]
+    },
+    {
+      "code": "Q-SCOPE-001",
+      "version": 1,
+      "prompt": "目前仍保存或使用的个人信息，大约涉及多少位不同的自然人？",
+      "helpText": "请合并员工、候选人、客户或供应商联系人、消费者等人数；不要填写客户企业数量。",
+      "answerType": "number_or_range",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [
+        { "factCode": "SCOPE.PERSON_COUNT", "transform": "number_or_range" },
+        { "factCode": "SCOPE.COUNT_AS_OF_DATE", "transform": "today" }
+      ],
+      "blockingLevel": "assessment_block",
+      "rules": [
+        { "when": "answer.min >= 100000", "action": "route_out_of_small_processor_path" },
+        { "when": "answer.max == null", "action": "create_person_count_task" }
+      ]
+    },
+    {
+      "code": "Q-SCOPE-002",
+      "version": 1,
+      "prompt": "上述人数是否合并计算了各系统中的自然人，并排除了已经删除的数据？",
+      "answerType": "yes_no_unknown",
+      "required": true,
+      "factMappings": [
+        { "factCode": "SCOPE.DELETED_EXCLUDED", "transform": "yes_no_unknown" },
+        { "factCode": "SCOPE.COUNT_METHOD", "transform": "derive_count_method" }
+      ],
+      "rules": [
+        { "when": "answer != 'yes'", "action": "create_person_count_verification_task" }
+      ]
+    },
+    {
+      "code": "Q-SUBJ-001",
+      "version": 1,
+      "prompt": "贵单位保存哪些人的信息？",
+      "answerType": "multiple",
+      "required": true,
+      "options": [
+        { "value": "employee", "label": "在职员工" },
+        { "value": "candidate", "label": "招聘候选人" },
+        { "value": "former_employee", "label": "离职员工" },
+        { "value": "customer_contact", "label": "客户企业联系人" },
+        { "value": "supplier_contact", "label": "供应商联系人" },
+        { "value": "consumer", "label": "消费者或会员" },
+        { "value": "visitor", "label": "访客" },
+        { "value": "minor_u14", "label": "不满十四周岁未成年人" },
+        { "value": "other", "label": "其他自然人" }
+      ],
+      "actions": [{ "type": "upsert_person_categories", "from": "selected_values" }]
+    },
+    {
+      "code": "Q-RISK-001",
+      "version": 1,
+      "prompt": "是否处理以下较敏感的信息？",
+      "answerType": "multiple_with_none_unknown",
+      "required": true,
+      "options": [
+        { "value": "identity_document", "label": "身份证件或特定身份" },
+        { "value": "financial_account", "label": "工资卡或其他金融账户" },
+        { "value": "health", "label": "健康或体检信息" },
+        { "value": "biometric", "label": "人脸、指纹或其他生物识别" },
+        { "value": "precise_location", "label": "精确位置或行踪轨迹" },
+        { "value": "religious_belief", "label": "宗教信仰" },
+        { "value": "minor", "label": "不满十四周岁未成年人信息" },
+        { "value": "none", "label": "以上都没有" },
+        { "value": "unknown", "label": "不清楚" }
+      ],
+      "actions": [{ "type": "upsert_sensitive_data_candidates" }],
+      "blockingLevel": "preview_only",
+      "officialItemMappings": ["A12", "A13", "P01", "P05"]
+    },
+    {
+      "code": "Q-RISK-002",
+      "version": 1,
+      "prompt": "业务对象中是否可能包括不满十四周岁的未成年人？",
+      "answerType": "yes_no_unknown",
+      "required": true,
+      "actions": [{ "type": "set_person_category_flag", "category": "minor_u14", "factCode": "PERSON.UNDER_14_POSSIBLE" }],
+      "rules": [{ "when": "answer in ['yes','unknown']", "action": "require_minor_specialist_review" }],
+      "officialItemMappings": ["A12", "A13", "P01", "P05"]
+    },
+    {
+      "code": "Q-XFER-001",
+      "version": 1,
+      "prompt": "个人信息是否会存到境外，或被境外总部、关联公司、供应商、管理员远程查看？",
+      "answerType": "yes_no_unknown",
+      "required": true,
+      "factMappings": [{ "factCode": "XFER.EXISTS", "transform": "yes_no_unknown" }],
+      "rules": [
+        { "when": "answer == 'yes'", "action": "activate_phase:FOREIGN_INVESTED" },
+        { "when": "answer == 'unknown'", "action": "create_cross_border_verification_task" }
+      ],
+      "blockingLevel": "preview_only",
+      "officialItemMappings": ["A14", "P04"]
+    },
+    {
+      "code": "Q-GOV-001",
+      "version": 1,
+      "prompt": "谁负责确认本次企业情况和后续个人信息保护事项？",
+      "answerType": "person_contact",
+      "required": true,
+      "factMappings": [
+        { "factCode": "ORG.PRIVACY_CONTACT_NAME", "transform": "answer.name" },
+        { "factCode": "ORG.PRIVACY_CONTACT_ROLE", "transform": "answer.role" },
+        { "factCode": "ORG.PRIVACY_CONTACT_CHANNEL", "transform": "answer.contact" }
+      ],
+      "officialItemMappings": ["A21"]
+    },
+    {
+      "code": "Q-ACT-001",
+      "version": 1,
+      "prompt": "这次要记录或评估的是哪项业务？",
+      "answerType": "scenario_selector",
+      "required": true,
+      "optionsSource": "scenario_catalog",
+      "actions": [{ "type": "create_or_select_processing_activity" }],
+      "factMappings": [
+        { "factCode": "ACT.NAME", "transform": "answer.displayName" },
+        { "factCode": "ACT.SCENARIO_TYPE", "transform": "answer.scenarioType" }
+      ]
+    },
+    {
+      "code": "Q-ACT-002",
+      "version": 1,
+      "prompt": "为什么需要这些个人信息？",
+      "answerType": "purpose_table",
+      "required": true,
+      "factMappings": [{ "factCode": "ACT.PURPOSES", "transform": "purpose_rows" }],
+      "officialItemMappings": ["A01", "A02", "A12", "P01.D1", "P05.D1"]
+    },
+    {
+      "code": "Q-ACT-003",
+      "version": 1,
+      "prompt": "这项业务涉及哪些人？大约各有多少人？",
+      "answerType": "person_category_count_table",
+      "required": true,
+      "factMappings": [
+        { "factCode": "ACT.PERSON_CATEGORIES", "transform": "category_ids" },
+        { "factCode": "ACT.PERSON_COUNT", "transform": "deduplicated_total_or_range" }
+      ]
+    },
+    {
+      "code": "Q-ACT-004",
+      "version": 1,
+      "prompt": "具体收集或生成哪些信息？哪些是必填？",
+      "answerType": "data_field_table",
+      "required": true,
+      "actions": [{ "type": "upsert_data_fields" }],
+      "factMappings": [
+        { "factCode": "ACT.DATA_FIELDS", "transform": "data_field_ids" },
+        { "factCode": "ACT.MANDATORY_FIELDS", "transform": "required_field_ids" },
+        { "factCode": "ACT.OPTIONAL_FIELDS", "transform": "optional_field_ids" }
+      ],
+      "officialItemMappings": ["A02", "A12"]
+    },
+    {
+      "code": "Q-ACT-005",
+      "version": 1,
+      "prompt": "这些信息从哪里取得？",
+      "answerType": "multiple",
+      "required": true,
+      "options": [
+        { "value": "person", "label": "本人填写或提供" },
+        { "value": "employer_generated", "label": "单位在管理过程中生成" },
+        { "value": "customer_company", "label": "客户企业提供" },
+        { "value": "supplier_company", "label": "供应商企业提供" },
+        { "value": "public_source", "label": "公开渠道" },
+        { "value": "device", "label": "设备自动采集" },
+        { "value": "third_party", "label": "其他第三方提供" }
+      ],
+      "factMappings": [{ "factCode": "ACT.SOURCES", "transform": "selected_values" }],
+      "officialItemMappings": ["A03", "A11"]
+    },
+    {
+      "code": "Q-ACT-006",
+      "version": 1,
+      "prompt": "如果不提供某个字段，是否仍能完成基础业务？",
+      "answerType": "field_necessity_table",
+      "required": true,
+      "factMappings": [{ "factCode": "ACT.NECESSITY_REASON", "transform": "necessity_summary" }],
+      "officialItemMappings": ["A02", "A12", "P01.D1", "P05.D1"]
+    },
+    {
+      "code": "Q-ACT-007",
+      "version": 1,
+      "prompt": "哪些岗位、公司或系统会查看和使用这些信息？",
+      "answerType": "access_and_system_table",
+      "required": true,
+      "actions": [{ "type": "upsert_systems_and_parties" }],
+      "factMappings": [
+        { "factCode": "ACT.ACCESS_ROLES", "transform": "access_roles" },
+        { "factCode": "ACT.SYSTEMS", "transform": "system_ids" },
+        { "factCode": "ACT.THIRD_PARTY_RELATIONS", "transform": "party_ids" }
+      ],
+      "officialItemMappings": ["A04", "A05", "A07", "A14", "A19", "P03", "P04"]
+    },
+    {
+      "code": "Q-ACT-008",
+      "version": 1,
+      "prompt": "这些信息保存多久，到期后怎样处理？",
+      "answerType": "retention_table",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [
+        { "factCode": "ACT.RETENTION_RULES", "transform": "retention_rows" },
+        { "factCode": "ACT.DELETION_METHOD", "transform": "deletion_summary" }
+      ],
+      "rules": [{ "when": "answer.containsUnknown == true", "action": "create_retention_definition_task" }],
+      "officialItemMappings": ["A02", "A15"]
+    },
+    {
+      "code": "Q-ACT-009",
+      "version": 1,
+      "prompt": "已经用什么方式向相关个人说明这些处理情况？",
+      "answerType": "notice_selector",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [
+        { "factCode": "ACT.NOTICE_VERSION", "transform": "selected_document_version" },
+        { "factCode": "NOTICE.CHANNEL", "transform": "selected_channels" }
+      ],
+      "officialItemMappings": ["A02", "A03"]
+    },
+    {
+      "code": "Q-ACT-010",
+      "version": 1,
+      "prompt": "相关个人如何查询、更正、删除信息或联系贵单位？",
+      "answerType": "rights_channel_table",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [{ "factCode": "ACT.RIGHTS_CHANNEL", "transform": "rights_channel" }],
+      "officialItemMappings": ["A02", "A16", "A17"]
+    },
+    {
+      "code": "Q-B2B-001",
+      "version": 1,
+      "prompt": "记录的只是客户或供应商企业资料，还是也包括具体联系人的信息？",
+      "answerType": "multiple",
+      "required": true,
+      "options": [
+        { "value": "company_only", "label": "只有企业名称、地址、统一社会信用代码、企业总机等" },
+        { "value": "contact_identity", "label": "联系人姓名、公司和职位" },
+        { "value": "contact_channel", "label": "工作邮箱、工作电话或个人手机号" },
+        { "value": "communication_record", "label": "项目沟通、会议或工单记录" }
+      ],
+      "rules": [
+        { "when": "answer == ['company_only']", "action": "mark_scenario_as_no_personal_information_candidate" },
+        { "when": "answer.containsAny(['contact_identity','contact_channel','communication_record'])", "action": "ensure_person_category:customer_or_supplier_contact" }
+      ]
+    },
+    {
+      "code": "Q-B2B-002",
+      "version": 1,
+      "prompt": "联系人信息从哪里取得？",
+      "answerType": "multiple",
+      "required": true,
+      "options": [
+        { "value": "person", "label": "联系人本人" },
+        { "value": "their_company", "label": "联系人所在企业" },
+        { "value": "public_source", "label": "企业官网、名片或其他公开渠道" },
+        { "value": "third_party", "label": "其他第三方" }
+      ],
+      "factMappings": [{ "factCode": "ACT.SOURCES", "transform": "merge_selected_values" }],
+      "officialItemMappings": ["A03", "A11"]
+    },
+    {
+      "code": "Q-B2B-003",
+      "version": 1,
+      "prompt": "这些信息用于哪些工作？",
+      "answerType": "multiple",
+      "required": true,
+      "options": [
+        { "value": "project_delivery", "label": "项目交付或履约联系" },
+        { "value": "procurement", "label": "采购或供应商管理" },
+        { "value": "customer_service", "label": "售后或工单" },
+        { "value": "marketing", "label": "推广新产品或活动" },
+        { "value": "relationship_management", "label": "客户关系管理" }
+      ],
+      "actions": [{ "type": "split_marketing_as_separate_purpose" }],
+      "officialItemMappings": ["A01", "A02", "A08", "A11"]
+    },
+    {
+      "code": "Q-B2B-004",
+      "version": 1,
+      "prompt": "联系人离职、项目结束或明确拒绝联系后怎样更新或删除？",
+      "answerType": "structured_text",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [{ "factCode": "ACT.DELETION_METHOD", "transform": "structured_answer" }],
+      "officialItemMappings": ["A15", "A16"]
+    },
+    {
+      "code": "Q-B2B-005",
+      "version": 1,
+      "prompt": "联系人信息会进入哪些系统？",
+      "answerType": "system_selector_with_create",
+      "required": true,
+      "suggestions": ["CRM", "邮箱", "邮件营销", "工单系统", "集团通讯录", "文件存储"],
+      "actions": [{ "type": "upsert_systems" }],
+      "factMappings": [{ "factCode": "ACT.SYSTEMS", "transform": "system_ids" }]
+    },
+    {
+      "code": "Q-B2B-006",
+      "version": 1,
+      "prompt": "是否把联系人信息提供给关联公司、渠道商或其他合作方？",
+      "answerType": "yes_no_unknown",
+      "required": true,
+      "rules": [{ "when": "answer in ['yes','unknown']", "action": "activate_phase:THIRD_PARTY" }],
+      "officialItemMappings": ["A04", "A05", "A07", "P03"]
+    },
+    {
+      "code": "Q-B2B-007",
+      "version": 1,
+      "prompt": "是否保存身份证、银行账户、健康、私人联系方式等超出普通商务联系所需的信息？",
+      "answerType": "multiple_with_none_unknown",
+      "required": true,
+      "actions": [{ "type": "upsert_sensitive_data_candidates" }],
+      "rules": [{ "when": "answer.hasSensitive == true || answer.hasUnknown == true", "action": "activate_phase:SENSITIVE" }],
+      "officialItemMappings": ["A02", "A12", "P01"]
+    },
+    {
+      "code": "Q-HR-001",
+      "version": 1,
+      "prompt": "这项业务涉及哪些人员？",
+      "answerType": "multiple",
+      "required": true,
+      "options": [
+        { "value": "candidate", "label": "招聘候选人" },
+        { "value": "employee", "label": "在职员工" },
+        { "value": "former_employee", "label": "离职员工" }
+      ],
+      "actions": [{ "type": "upsert_person_categories", "from": "selected_values" }]
+    },
+    {
+      "code": "Q-HR-002",
+      "version": 1,
+      "prompt": "收集或生成哪些人事材料？",
+      "answerType": "data_field_template",
+      "required": true,
+      "suggestions": ["简历", "身份证件", "学历", "背景调查", "健康或体检", "工资账户", "考勤", "绩效", "培训"],
+      "actions": [{ "type": "upsert_data_fields" }],
+      "officialItemMappings": ["A02", "A12", "P01"]
+    },
+    {
+      "code": "Q-HR-003",
+      "version": 1,
+      "prompt": "这些材料分别用于招聘、劳动合同、人事管理、薪酬福利还是法定义务？",
+      "answerType": "field_purpose_mapping",
+      "required": true,
+      "factMappings": [{ "factCode": "ACT.PURPOSES", "transform": "purpose_rows" }],
+      "officialItemMappings": ["A01", "A02", "A12", "P01.D1"]
+    },
+    {
+      "code": "Q-HR-004",
+      "version": 1,
+      "prompt": "招聘未成功后，简历保存多久？是否会进入人才库？",
+      "answerType": "retention_and_secondary_use",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [
+        { "factCode": "ACT.RETENTION_RULES", "transform": "retention_rows" },
+        { "factCode": "PURPOSE.SECONDARY_USE", "transform": "talent_pool_use" }
+      ],
+      "officialItemMappings": ["A01", "A02", "A15"]
+    },
+    {
+      "code": "Q-HR-005",
+      "version": 1,
+      "prompt": "人事信息使用本地系统还是集团统一系统？",
+      "answerType": "single",
+      "required": true,
+      "options": [
+        { "value": "local_system", "label": "中国境内本地系统" },
+        { "value": "global_system", "label": "集团全球系统" },
+        { "value": "both", "label": "两者都有" },
+        { "value": "unknown", "label": "不清楚" }
+      ],
+      "rules": [{ "when": "answer in ['global_system','both','unknown']", "action": "activate_phase:FOREIGN_INVESTED" }]
+    },
+    {
+      "code": "Q-HR-006",
+      "version": 1,
+      "prompt": "境外总部或区域人事团队能否查看中国员工或候选人资料？",
+      "answerType": "yes_no_unknown",
+      "required": true,
+      "factMappings": [{ "factCode": "XFER.EXISTS", "transform": "yes_no_unknown_remote_access" }],
+      "officialItemMappings": ["A14", "P04"]
+    },
+    {
+      "code": "Q-HR-007",
+      "version": 1,
+      "prompt": "员工离职后，哪些信息继续保存、为什么、保存多久？",
+      "answerType": "retention_table",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [{ "factCode": "ACT.RETENTION_RULES", "transform": "retention_rows" }],
+      "officialItemMappings": ["A02", "A15"]
+    },
+    {
+      "code": "Q-HR-008",
+      "version": 1,
+      "prompt": "员工离职时是否会关闭其系统账号和个人信息访问权限？",
+      "answerType": "yes_no_unknown",
+      "required": true,
+      "factMappings": [{ "factCode": "SEC.ACCESS_CONTROL", "transform": "offboarding_control" }],
+      "officialItemMappings": ["A18", "A19"]
+    },
+    {
+      "code": "Q-FIE-001",
+      "version": 1,
+      "prompt": "中国团队使用哪些集团统一系统？",
+      "answerType": "system_selector_with_create",
+      "required": true,
+      "suggestions": ["集团邮箱", "CRM", "ERP", "HR", "文件存储", "工单", "视频会议", "身份账号"],
+      "actions": [{ "type": "upsert_systems" }]
+    },
+    {
+      "code": "Q-FIE-002",
+      "version": 1,
+      "prompt": "每个系统的数据实际存在哪里？",
+      "answerType": "system_country_table",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [
+        { "factCode": "SYS.HOSTING_COUNTRIES", "transform": "per_system_hosting" },
+        { "factCode": "SYS.BACKUP_COUNTRIES", "transform": "per_system_backup" }
+      ],
+      "rules": [{ "when": "answer.containsUnknown == true", "action": "create_it_vendor_confirmation_task" }],
+      "officialItemMappings": ["A14", "P04"]
+    },
+    {
+      "code": "Q-FIE-003",
+      "version": 1,
+      "prompt": "境外总部、区域团队或境外供应商管理员能否远程查看、导出或维护数据？",
+      "answerType": "overseas_access_table",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [
+        { "factCode": "SYS.ADMIN_COUNTRIES", "transform": "per_system_admin_countries" },
+        { "factCode": "XFER.EXISTS", "transform": "derive_from_confirmed_remote_access" },
+        { "factCode": "XFER.MODE", "transform": "derive_modes" }
+      ],
+      "officialItemMappings": ["A14", "P04"]
+    },
+    {
+      "code": "Q-FIE-004",
+      "version": 1,
+      "prompt": "哪些境外法人或团队可以接收或访问，分别为了什么工作？",
+      "answerType": "recipient_purpose_table",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [
+        { "factCode": "XFER.RECIPIENT", "transform": "recipient_rows" },
+        { "factCode": "XFER.PURPOSE", "transform": "purpose_rows" }
+      ],
+      "validation": { "disallowGenericRecipientOnly": true },
+      "officialItemMappings": ["A14", "P04"]
+    },
+    {
+      "code": "Q-FIE-005",
+      "version": 1,
+      "prompt": "境外接收或访问涉及哪些人？各约多少人？",
+      "answerType": "person_category_count_table",
+      "required": true,
+      "factMappings": [{ "factCode": "XFER.PERSON_CATEGORIES", "transform": "category_rows" }],
+      "officialItemMappings": ["A14", "P04"]
+    },
+    {
+      "code": "Q-FIE-006",
+      "version": 1,
+      "prompt": "具体涉及哪些字段？是否包含身份证、工资账户、健康或背景调查信息？",
+      "answerType": "data_field_table",
+      "required": true,
+      "actions": [{ "type": "upsert_data_fields" }],
+      "factMappings": [{ "factCode": "XFER.DATA_FIELDS", "transform": "data_field_ids" }],
+      "officialItemMappings": ["A12", "A14", "P01", "P04"]
+    },
+    {
+      "code": "Q-FIE-007",
+      "version": 1,
+      "prompt": "这种访问或提供是持续同步、定期报表、按需查询还是一次性？",
+      "answerType": "multiple",
+      "required": true,
+      "options": [
+        { "value": "continuous", "label": "持续同步" },
+        { "value": "periodic", "label": "定期报表" },
+        { "value": "on_demand", "label": "按需查询" },
+        { "value": "one_time", "label": "一次性" }
+      ],
+      "factMappings": [{ "factCode": "XFER.FREQUENCY", "transform": "selected_values" }]
+    },
+    {
+      "code": "Q-FIE-008",
+      "version": 1,
+      "prompt": "中国企业与境外接收方之间是否有数据处理或集团内部协议？",
+      "answerType": "yes_no_unknown_with_file",
+      "required": true,
+      "factMappings": [{ "factCode": "PARTY.CONTRACT", "transform": "answer_and_document_ref" }],
+      "officialItemMappings": ["A05", "A07", "A14", "P03", "P04"]
+    },
+    {
+      "code": "Q-FIE-009",
+      "version": 1,
+      "prompt": "是否已完成与该安排有关的影响评估、合同、认证、备案或其他程序？",
+      "answerType": "procedure_evidence_table",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [{ "factCode": "XFER.PROCEDURE_EVIDENCE", "transform": "procedure_rows" }],
+      "helpText": "只需如实选择已完成的事项，系统会根据事实和有效规则判断还需做什么。",
+      "officialItemMappings": ["A14", "A22", "P04"]
+    },
+    {
+      "code": "Q-FIE-010",
+      "version": 1,
+      "prompt": "能否通过本地账号、字段缩减、访问审批或脱敏减少境外访问？",
+      "answerType": "measure_selector",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [{ "factCode": "XFER.PROTECTION_MEASURES", "transform": "measure_rows" }],
+      "officialItemMappings": ["A14", "A19", "P04.D3"]
+    },
+    {
+      "code": "Q-SENS-001",
+      "version": 1,
+      "prompt": "请确认具体的敏感个人信息类别和字段。",
+      "answerType": "sensitive_data_table",
+      "required": true,
+      "actions": [{ "type": "confirm_sensitive_data_fields" }],
+      "officialItemMappings": ["A12", "P01"]
+    },
+    {
+      "code": "Q-SENS-002",
+      "version": 1,
+      "prompt": "为什么必须处理这些敏感信息？是否有侵害更小的替代方式？",
+      "answerType": "necessity_and_alternative",
+      "required": true,
+      "factMappings": [
+        { "factCode": "ACT.NECESSITY_REASON", "transform": "necessity" },
+        { "factCode": "PURPOSE.ALTERNATIVE_AVAILABLE", "transform": "alternative" }
+      ],
+      "officialItemMappings": ["A12", "P01.D1"]
+    },
+    {
+      "code": "Q-SENS-003",
+      "version": 1,
+      "prompt": "是否已向个人说明处理必要性和对其权益的影响？",
+      "answerType": "yes_no_unknown_with_document",
+      "required": true,
+      "factMappings": [{ "factCode": "NOTICE.BEFORE_PROCESSING", "transform": "answer" }],
+      "officialItemMappings": ["A12"]
+    },
+    {
+      "code": "Q-SENS-004",
+      "version": 1,
+      "prompt": "是否设置了单独同意；如法律要求书面同意，是否有相应记录？",
+      "answerType": "consent_mechanism",
+      "required": true,
+      "factMappings": [
+        { "factCode": "CONSENT.SEPARATE", "transform": "separate" },
+        { "factCode": "CONSENT.WRITTEN", "transform": "written" },
+        { "factCode": "CONSENT.RECORD_FIELDS", "transform": "record_fields" }
+      ],
+      "officialItemMappings": ["A01", "A12"]
+    },
+    {
+      "code": "Q-SENS-005",
+      "version": 1,
+      "prompt": "哪些岗位可以访问，是否有加密、日志和导出控制？",
+      "answerType": "security_measure_table",
+      "required": true,
+      "factMappings": [
+        { "factCode": "SEC.ACCESS_CONTROL", "transform": "access_control" },
+        { "factCode": "SEC.ENCRYPTION", "transform": "encryption" },
+        { "factCode": "SEC.LOGGING", "transform": "logging" }
+      ],
+      "officialItemMappings": ["A12", "A19", "P01.D3"]
+    },
+    {
+      "code": "Q-SENS-006",
+      "version": 1,
+      "prompt": "是否已经针对该活动完成个人信息保护影响评估？",
+      "answerType": "yes_no_unknown_with_form_ref",
+      "required": true,
+      "factMappings": [{ "factCode": "GOV.PIPIA_PROCESS", "transform": "assessment_reference" }],
+      "rules": [{ "when": "answer != 'yes'", "action": "create_pipia_instance:P01" }],
+      "officialItemMappings": ["A12", "A22", "P01"]
+    },
+    {
+      "code": "Q-PARTY-001",
+      "version": 1,
+      "prompt": "对方的法定名称和使用的产品或服务是什么？",
+      "answerType": "third_party_table",
+      "required": true,
+      "actions": [{ "type": "upsert_third_parties" }]
+    },
+    {
+      "code": "Q-PARTY-002",
+      "version": 1,
+      "prompt": "谁决定处理目的、字段和使用方式？对方能否为自己的目的使用？",
+      "answerType": "relationship_fact_table",
+      "required": true,
+      "factMappings": [{ "factCode": "PARTY.ROLE_CANDIDATE", "transform": "derive_candidate_only" }],
+      "blockingLevel": "preview_only",
+      "officialItemMappings": ["A04", "A05", "A07", "P03"]
+    },
+    {
+      "code": "Q-PARTY-003",
+      "version": 1,
+      "prompt": "对方处理哪些人的哪些信息、为了什么目的？",
+      "answerType": "party_data_purpose_table",
+      "required": true,
+      "factMappings": [
+        { "factCode": "PARTY.PERSON_CATEGORIES", "transform": "person_categories" },
+        { "factCode": "PARTY.DATA_FIELDS", "transform": "data_fields" },
+        { "factCode": "PARTY.PURPOSE", "transform": "purpose" }
+      ]
+    },
+    {
+      "code": "Q-PARTY-004",
+      "version": 1,
+      "prompt": "合同是否约定目的、期限、方式、信息种类、保护措施和双方责任？",
+      "answerType": "contract_checklist_with_file",
+      "required": true,
+      "factMappings": [{ "factCode": "PARTY.CONTRACT", "transform": "contract_checklist" }],
+      "officialItemMappings": ["A04", "A05"]
+    },
+    {
+      "code": "Q-PARTY-005",
+      "version": 1,
+      "prompt": "贵单位如何检查或监督服务商的个人信息处理？",
+      "answerType": "supervision_record",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [{ "factCode": "PARTY.SUPERVISION", "transform": "structured_answer" }],
+      "officialItemMappings": ["A05"]
+    },
+    {
+      "code": "Q-PARTY-006",
+      "version": 1,
+      "prompt": "服务商发生个人信息安全事件时，如何通知贵单位？",
+      "answerType": "incident_channel",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [{ "factCode": "PARTY.SECURITY_INCIDENT_CHANNEL", "transform": "structured_answer" }],
+      "officialItemMappings": ["A04", "A05", "A23", "A24"]
+    },
+    {
+      "code": "Q-NOTICE-001",
+      "version": 1,
+      "prompt": "当前有效的告知或隐私声明是哪一版？",
+      "answerType": "notice_selector_with_upload",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [{ "factCode": "ACT.NOTICE_VERSION", "transform": "document_version_id" }],
+      "officialItemMappings": ["A02", "A03"]
+    },
+    {
+      "code": "Q-NOTICE-002",
+      "version": 1,
+      "prompt": "在什么时候、通过什么方式向相关个人展示？",
+      "answerType": "notice_channel_table",
+      "required": true,
+      "factMappings": [
+        { "factCode": "NOTICE.BEFORE_PROCESSING", "transform": "before_processing" },
+        { "factCode": "NOTICE.CHANNEL", "transform": "channels" },
+        { "factCode": "NOTICE.PROMINENCE", "transform": "prominence" }
+      ],
+      "officialItemMappings": ["A03"]
+    },
+    {
+      "code": "Q-CONSENT-001",
+      "version": 1,
+      "prompt": "业务中是否有需要个人作出选择或同意的步骤？",
+      "answerType": "consent_mechanism",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [
+        { "factCode": "CONSENT.REQUIRED_INPUT", "transform": "required_input" },
+        { "factCode": "CONSENT.MECHANISM", "transform": "mechanism" },
+        { "factCode": "CONSENT.RECORD_FIELDS", "transform": "record_fields" }
+      ],
+      "officialItemMappings": ["A01", "A07", "A09", "A12"]
+    },
+    {
+      "code": "Q-RET-001",
+      "version": 1,
+      "prompt": "请确认每类信息的保存期限或确定方法。",
+      "answerType": "retention_table",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [{ "factCode": "RET.RULE", "transform": "retention_rows" }],
+      "officialItemMappings": ["A02", "A15"]
+    },
+    {
+      "code": "Q-RET-002",
+      "version": 1,
+      "prompt": "到期、注销、撤回或目的完成后，由谁在什么系统执行删除、匿名化或限制处理？",
+      "answerType": "retention_execution_table",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [
+        { "factCode": "RET.TRIGGER", "transform": "triggers" },
+        { "factCode": "RET.ACTION", "transform": "actions" },
+        { "factCode": "RET.EXECUTION_OWNER", "transform": "owners" }
+      ],
+      "officialItemMappings": ["A15"]
+    },
+    {
+      "code": "Q-RIGHTS-001",
+      "version": 1,
+      "prompt": "相关个人通过什么途径提出查询、更正、删除或解释请求，由谁处理？",
+      "answerType": "rights_process",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [
+        { "factCode": "RIGHTS.CHANNELS", "transform": "channels" },
+        { "factCode": "RIGHTS.OWNER", "transform": "owner" },
+        { "factCode": "RIGHTS.TRACKING", "transform": "tracking" }
+      ],
+      "officialItemMappings": ["A02", "A16", "A17"]
+    },
+    {
+      "code": "Q-SEC-001",
+      "version": 1,
+      "prompt": "是否按岗位控制查看、复制和导出权限，并在员工离职时收回？",
+      "answerType": "yes_no_unknown_with_evidence",
+      "required": true,
+      "factMappings": [{ "factCode": "SEC.ACCESS_CONTROL", "transform": "structured_answer" }],
+      "officialItemMappings": ["A18", "A19"]
+    },
+    {
+      "code": "Q-SEC-002",
+      "version": 1,
+      "prompt": "是否采用加密、备份恢复和访问日志等基础安全措施？",
+      "answerType": "security_measure_table",
+      "required": true,
+      "allowUnknown": true,
+      "factMappings": [
+        { "factCode": "SEC.ENCRYPTION", "transform": "encryption" },
+        { "factCode": "SEC.BACKUP_RECOVERY", "transform": "backup_recovery" },
+        { "factCode": "SEC.LOGGING", "transform": "logging" }
+      ],
+      "officialItemMappings": ["A19"]
+    }
+  ],
+  "globalRules": [
+    {
+      "code": "R-SMALL-001",
+      "when": "fact('SCOPE.PERSON_COUNT').min >= 100000",
+      "action": "block_formal_small_processor_conclusion",
+      "message": "当前人数已达到或超过 10 万人，需转入一般个人信息处理者路径。"
+    },
+    {
+      "code": "R-XFER-001",
+      "when": "fact('ORG.OWNERSHIP') in ['foreign_invested','foreign_branch','mixed'] && !hasConfirmedOverseasStorageOrAccess()",
+      "action": "keep_xfer_unknown_or_false",
+      "message": "外资身份不能单独作为数据出境事实。"
+    },
+    {
+      "code": "R-B2B-001",
+      "when": "scenario.type == 'b2b_contact' && answer('Q-B2B-001') == ['company_only']",
+      "action": "require_human_confirmation_before_marking_no_personal_information"
+    },
+    {
+      "code": "R-AI-001",
+      "when": "fact.sourceType == 'ai_inference'",
+      "action": "force_candidate_status"
+    },
+    {
+      "code": "R-CONFIRM-001",
+      "when": "session.hasBlockingUnknown || session.hasDisputedFacts",
+      "action": "block_formal_assessment_and_signature"
+    }
+  ],
+  "aiHooks": [
+    {
+      "code": "AI-DOCUMENT-FACT-EXTRACTION",
+      "trigger": "document_uploaded",
+      "allowedOutputs": ["candidate_facts", "source_spans", "candidate_questions"],
+      "forbiddenOutputs": ["confirmed_facts", "official_conclusion"]
+    },
+    {
+      "code": "AI-SCENARIO-NORMALIZATION",
+      "trigger": "free_text_scenario_submitted",
+      "allowedOutputs": ["scenario_type_candidate", "purpose_candidates", "data_field_candidates", "follow_up_question_candidates"]
+    },
+    {
+      "code": "AI-FACT-CONFLICT-DETECTION",
+      "trigger": "answer_saved",
+      "allowedOutputs": ["conflict_candidates", "follow_up_question_candidates"]
+    }
+  ]
+}

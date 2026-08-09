@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pipl.local/schemas/ai/ai-workflow-request.v1.schema.json",
+  "title": "AI Workflow Minimized Request",
+  "description": "Payload produced by AI Gateway after tenant authorization, context minimization, and redaction. It must not contain a persistent tenant identifier.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "run_id", "workspace_token", "workflow", "task",
+    "context", "retrieval", "data_policy", "output_contract", "model_route"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "run_id": { "type": "string", "format": "uuid" },
+    "workspace_token": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{32,256}$",
+      "description": "Ephemeral opaque token scoped to this run; not a tenant ID."
+    },
+    "workflow": { "$ref": "#/$defs/workflow" },
+    "task": { "$ref": "#/$defs/task" },
+    "context": { "$ref": "#/$defs/context" },
+    "retrieval": { "$ref": "#/$defs/retrieval" },
+    "data_policy": { "$ref": "#/$defs/dataPolicy" },
+    "output_contract": { "$ref": "#/$defs/outputContract" },
+    "model_route": { "$ref": "#/$defs/modelRoute" }
+  },
+  "$defs": {
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "version", "prompt_version"],
+      "properties": {
+        "code": {
+          "enum": [
+            "enterprise_profile_interview", "small_processor_qualification", "scenario_triage",
+            "privacy_notice_generate_review", "pipia_assessment", "audit_self_check"
+          ]
+        },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "prompt_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "regulation_bundle_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "ruleset_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "question_tree_version": { "type": ["string", "null"], "maxLength": 64 }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "locale", "user_request", "allowed_outputs"],
+      "properties": {
+        "type": {
+          "enum": [
+            "extract_facts", "propose_questions", "explain_qualification", "triage_scenario",
+            "review_document", "draft_document", "draft_pipia", "draft_audit_findings"
+          ]
+        },
+        "locale": { "enum": ["zh-CN", "en"] },
+        "user_request": { "type": "string", "minLength": 1, "maxLength": 10000 },
+        "allowed_outputs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["fact_question", "assessment", "document"] }
+        },
+        "instructions": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["facts", "rule_results", "document_excerpts", "regulation_chunks"],
+      "properties": {
+        "scenario": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "scenario_code": { "type": "string", "pattern": "^SCN-[A-Z0-9-]+$" },
+            "scenario_type": { "type": "string", "maxLength": 100 },
+            "activity_ref": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "name": { "type": "string", "maxLength": 300 },
+            "description": { "type": ["string", "null"], "maxLength": 5000 }
+          }
+        },
+        "facts": {
+          "type": "array",
+          "maxItems": 500,
+          "items": { "$ref": "#/$defs/fact" }
+        },
+        "rule_results": {
+          "type": "array",
+          "maxItems": 200,
+          "items": { "$ref": "#/$defs/ruleResult" }
+        },
+        "document_excerpts": {
+          "type": "array",
+          "maxItems": 200,
+          "items": { "$ref": "#/$defs/documentExcerpt" }
+        },
+        "regulation_chunks": {
+          "type": "array",
+          "maxItems": 200,
+          "items": { "$ref": "#/$defs/regulationChunk" }
+        },
+        "prior_output_refs": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      }
+    },
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fact_ref", "fact_code", "subject_ref", "value", "status", "source_type"],
+      "properties": {
+        "fact_ref": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "fact_code": { "$ref": "../fact-schema.v1.json#/$defs/factCode" },
+        "subject_ref": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "value": {},
+        "status": { "enum": ["candidate", "confirmed"] },
+        "source_type": { "enum": ["user_answer", "uploaded_document", "system_import", "public_registry", "expert_opinion", "ai_inference"] },
+        "sensitivity_level": { "enum": ["public", "internal", "confidential", "sensitive"] },
+        "source_refs": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      }
+    },
+    "ruleResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_ref", "rule_code", "ruleset_version", "result"],
+      "properties": {
+        "result_ref": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "rule_code": { "type": "string", "pattern": "^R-[A-Z]+-[0-9]{3}$" },
+        "ruleset_version": { "type": "string" },
+        "result": { "enum": ["PASS", "FAIL", "NOT_APPLICABLE", "UNKNOWN", "NEEDS_REVIEW"] },
+        "message": { "type": ["string", "null"], "maxLength": 2000 },
+        "fact_refs": { "type": "array", "maxItems": 50, "items": { "type": "string" } },
+        "source_refs": { "type": "array", "maxItems": 50, "items": { "type": "string" } }
+      }
+    },
+    "documentExcerpt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["excerpt_ref", "document_type", "document_version_ref", "locator", "content", "content_hash"],
+      "properties": {
+        "excerpt_ref": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "document_type": { "type": "string", "maxLength": 100 },
+        "document_version_ref": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "locator": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "content": { "type": "string", "minLength": 1, "maxLength": 30000 },
+        "content_hash": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+        "language": { "enum": ["zh-CN", "en"] },
+        "sensitivity_level": { "enum": ["public", "internal", "confidential", "sensitive"] }
+      }
+    },
+    "regulationChunk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chunk_ref", "source_code", "article_locator", "content", "content_hash", "source_type"],
+      "properties": {
+        "chunk_ref": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "source_code": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "article_locator": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "content": { "type": "string", "minLength": 1, "maxLength": 10000 },
+        "content_hash": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+        "source_type": { "enum": ["law", "administrative_regulation", "department_rule", "official_rule", "official_form", "official_explanation"] },
+        "official_url": { "type": ["string", "null"], "format": "uri" }
+      }
+    },
+    "retrieval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "query", "source_codes", "top_k", "rerank"],
+      "properties": {
+        "mode": { "enum": ["none", "preassembled", "dify_knowledge"] },
+        "query": { "type": ["string", "null"], "maxLength": 5000 },
+        "source_codes": {
+          "type": "array",
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+        },
+        "topic_filters": {
+          "type": "array",
+          "maxItems": 30,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+        },
+        "top_k": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "rerank": { "type": "boolean" },
+        "minimum_score": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "mode": { "const": "dify_knowledge" } },
+            "required": ["mode"]
+          },
+          "then": {
+            "properties": {
+              "query": { "type": "string", "minLength": 1 },
+              "source_codes": { "minItems": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "dataPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maximum_sensitivity", "redactions_applied", "prohibited_outputs", "allow_raw_persistence"],
+      "properties": {
+        "maximum_sensitivity": { "enum": ["public", "internal", "confidential", "sensitive"] },
+        "redactions_applied": {
+          "type": "array",
+          "items": { "enum": ["none", "mask_identifiers", "remove_credentials", "remove_unrelated_fields", "truncate_free_text"] },
+          "uniqueItems": true
+        },
+        "prohibited_outputs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "tenant_identifier", "credentials", "hidden_reasoning", "formal_approval",
+              "formal_signature", "overall_compliance_certification", "unregistered_fact_code"
+            ]
+          }
+        },
+        "allow_raw_persistence": { "type": "boolean" },
+        "retention_class": { "enum": ["transient", "controlled_short", "controlled_standard"] }
+      }
+    },
+    "outputContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["output_type", "schema_id", "schema_version", "strict"],
+      "properties": {
+        "output_type": { "enum": ["fact_question", "assessment", "document"] },
+        "schema_id": { "type": "string", "format": "uri" },
+        "schema_version": { "const": "1.0.0" },
+        "strict": { "const": true }
+      }
+    },
+    "modelRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "preferred_providers", "max_attempts", "max_input_tokens", "max_output_tokens"],
+      "properties": {
+        "capability": { "enum": ["extraction", "long_context_review", "legal_analysis", "drafting"] },
+        "preferred_providers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": { "enum": ["qwen", "kimi", "deepseek"] }
+        },
+        "preferred_model_codes": {
+          "type": "array",
+          "maxItems": 5,
+          "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+        },
+        "max_attempts": { "type": "integer", "minimum": 1, "maximum": 3 },
+        "max_input_tokens": { "type": "integer", "minimum": 1000, "maximum": 2000000 },
+        "max_output_tokens": { "type": "integer", "minimum": 100, "maximum": 100000 },
+        "temperature": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  }
+}

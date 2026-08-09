@@ -1,0 +1,1358 @@
+openapi: 3.1.0
+info:
+  title: Small Processor PIPL Compliance Platform API
+  version: 1.0.0
+  description: >-
+    Contract baseline for enterprise facts, scenario interviews, assessments,
+    document versioning, official forms, remediation, public notices, and the
+    internal AI Gateway. Formal state and tenant isolation remain in the core platform.
+servers:
+  - url: https://api.example.invalid
+    description: Replace per environment
+tags:
+  - name: Profile
+  - name: Facts
+  - name: Scenarios
+  - name: Sessions
+  - name: Assessments
+  - name: AI Runs
+  - name: Documents
+  - name: Official Forms
+  - name: Remediation
+  - name: Public
+  - name: Internal AI
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/profile-sessions:
+    post:
+      tags: [Profile]
+      operationId: createProfileSession
+      summary: Create an enterprise profile interview session
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [mode]
+              properties:
+                mode:
+                  type: string
+                  enum: [quick, complete, seed_document]
+                seed_document_ids:
+                  type: array
+                  items: { type: string, format: uuid }
+                  uniqueItems: true
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssessmentSession' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/enterprise-profile:
+    get:
+      tags: [Profile]
+      operationId: getEnterpriseProfile
+      summary: Get the current enterprise profile summary
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Current profile
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnterpriseProfile' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/facts:
+    get:
+      tags: [Facts]
+      operationId: listFacts
+      summary: List tenant-scoped facts
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - in: query
+          name: fact_code
+          schema: { type: string }
+        - in: query
+          name: subject_type
+          schema:
+            type: string
+            enum: [enterprise, person_category, processing_activity, data_field, purpose, system, third_party, document, incident]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [candidate, confirmed, disputed, expired, superseded]
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Fact page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CursorPage'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/FactRecord' }
+  /api/v1/facts:confirm:
+    post:
+      tags: [Facts]
+      operationId: confirmFacts
+      summary: Confirm candidate facts and create immutable fact versions
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmations]
+              properties:
+                confirmations:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [candidate_fact_id, decision]
+                    properties:
+                      candidate_fact_id: { type: string, format: uuid }
+                      decision: { type: string, enum: [confirm, correct, reject] }
+                      corrected_value: {}
+                      note: { type: string, maxLength: 1000 }
+      responses:
+        '200':
+          description: Confirmation result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [facts]
+                properties:
+                  facts:
+                    type: array
+                    items: { $ref: '#/components/schemas/FactRecord' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/fact-snapshots:
+    post:
+      tags: [Facts]
+      operationId: createFactSnapshot
+      summary: Freeze confirmed facts for a formal operation
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [purpose, fact_ids]
+              properties:
+                purpose:
+                  type: string
+                  enum: [assessment, official_form, document_publication, audit_export]
+                fact_ids:
+                  type: array
+                  minItems: 1
+                  uniqueItems: true
+                  items: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Snapshot created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FactSnapshot' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/scenario-catalog:
+    get:
+      tags: [Scenarios]
+      operationId: getScenarioCatalog
+      summary: Get the published scenario catalog
+      responses:
+        '200':
+          description: Scenario catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, scenarios]
+                properties:
+                  version: { type: string }
+                  scenarios:
+                    type: array
+                    items: { $ref: '#/components/schemas/ScenarioSummary' }
+  /api/v1/processing-activities:
+    post:
+      tags: [Scenarios]
+      operationId: createProcessingActivity
+      summary: Create a processing activity
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProcessingActivityCreate' }
+      responses:
+        '201':
+          description: Activity created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProcessingActivity' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/processing-activities/{activityId}:
+    parameters:
+      - $ref: '#/components/parameters/ActivityId'
+    get:
+      tags: [Scenarios]
+      operationId: getProcessingActivity
+      responses:
+        '200':
+          description: Processing activity
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProcessingActivity' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Scenarios]
+      operationId: updateProcessingActivity
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                owner_user_id: { type: [string, 'null'], format: uuid }
+                status: { type: string, enum: [planned, active, suspended, ended] }
+      responses:
+        '200':
+          description: Updated activity
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProcessingActivity' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+  /api/v1/processing-activities/{activityId}/triage-sessions:
+    post:
+      tags: [Sessions]
+      operationId: createTriageSession
+      parameters:
+        - $ref: '#/components/parameters/ActivityId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Triage session created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssessmentSession' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/assessment-sessions/{sessionId}:
+    get:
+      tags: [Sessions]
+      operationId: getAssessmentSession
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Session state and visible questions
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssessmentSession' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/assessment-sessions/{sessionId}/answers:
+    post:
+      tags: [Sessions]
+      operationId: submitSessionAnswers
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [answers]
+              properties:
+                answers:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items: { $ref: '#/components/schemas/QuestionAnswer' }
+      responses:
+        '200':
+          description: Updated session and next questions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssessmentSession' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/assessment-sessions/{sessionId}:analyze:
+    post:
+      tags: [Sessions]
+      operationId: analyzeAssessmentSession
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '202': { $ref: '#/components/responses/JobAccepted' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/assessment-sessions/{sessionId}:confirm-facts:
+    post:
+      tags: [Sessions]
+      operationId: confirmSessionFacts
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmation_statement]
+              properties:
+                confirmation_statement: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        '200':
+          description: Confirmed snapshot and session
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session, fact_snapshot]
+                properties:
+                  session: { $ref: '#/components/schemas/AssessmentSession' }
+                  fact_snapshot: { $ref: '#/components/schemas/FactSnapshot' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/assessment-sessions/{sessionId}:cancel:
+    post:
+      tags: [Sessions]
+      operationId: cancelAssessmentSession
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204': { description: Cancelled }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+  /api/v1/qualifications:assess:
+    post:
+      tags: [Assessments]
+      operationId: assessSmallProcessorQualification
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [fact_snapshot_id]
+              properties:
+                fact_snapshot_id: { type: string, format: uuid }
+                ruleset_version: { type: string, default: 1.0.0 }
+      responses:
+        '200':
+          description: Deterministic qualification result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Assessment' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/assessments/{assessmentId}:
+    get:
+      tags: [Assessments]
+      operationId: getAssessment
+      parameters:
+        - $ref: '#/components/parameters/AssessmentId'
+      responses:
+        '200':
+          description: Assessment with findings
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Assessment' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/assessments/{assessmentId}:submit-review:
+    post:
+      tags: [Assessments]
+      operationId: submitAssessmentReview
+      parameters:
+        - $ref: '#/components/parameters/AssessmentId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [conclusion_code, review_note]
+              properties:
+                conclusion_code:
+                  type: string
+                  enum: [SIMPLE_RECORD, REMEDIATE_THEN_PROCEED, PIPIA_REQUIRED, EXPERT_REVIEW, OUT_OF_SMALL_SCOPE]
+                review_note: { type: string, minLength: 1, maxLength: 5000 }
+      responses:
+        '200':
+          description: Reviewed assessment
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Assessment' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/ai-runs/{runId}:
+    get:
+      tags: [AI Runs]
+      operationId: getAiRun
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+      responses:
+        '200':
+          description: AI run status and validated output
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiRun' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/ai-runs/{runId}/events:
+    get:
+      tags: [AI Runs]
+      operationId: streamAiRunEvents
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+      responses:
+        '200':
+          description: SSE progress without hidden reasoning
+          content:
+            text/event-stream:
+              schema:
+                type: string
+  /api/v1/ai-runs/{runId}:retry:
+    post:
+      tags: [AI Runs]
+      operationId: retryAiRun
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202': { $ref: '#/components/responses/JobAccepted' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/documents:
+    post:
+      tags: [Documents]
+      operationId: createDocument
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [document_type, name]
+              properties:
+                document_type:
+                  type: string
+                  enum: [privacy_notice, employee_notice, recruitment_notice, b2b_contact_notice, internal_policy, consent_text, incident_plan, other]
+                name: { type: string, minLength: 1, maxLength: 300 }
+                default_language: { type: string, enum: [zh-CN, en], default: zh-CN }
+      responses:
+        '201':
+          description: Document created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BusinessDocument' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/documents/{documentId}:
+    get:
+      tags: [Documents]
+      operationId: getDocument
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '200':
+          description: Document with versions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BusinessDocument' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/documents/{documentId}/versions:
+    post:
+      tags: [Documents]
+      operationId: createDocumentVersion
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [version_number, source_type, fact_snapshot_id]
+              properties:
+                version_number: { type: string, pattern: '^[0-9]+\.[0-9]+(?:\.[0-9]+)?$' }
+                source_type: { type: string, enum: [manual, upload, ai_draft, restore_as_new] }
+                content: { type: [string, 'null'], maxLength: 200000 }
+                upload_object_key: { type: [string, 'null'], maxLength: 500 }
+                fact_snapshot_id: { type: string, format: uuid }
+                supersedes_version_id: { type: [string, 'null'], format: uuid }
+      responses:
+        '201':
+          description: Draft version created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentVersion' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/document-versions/{versionId}:request-ai-review:
+    post:
+      tags: [Documents]
+      operationId: requestDocumentAiReview
+      parameters:
+        - $ref: '#/components/parameters/VersionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '202': { $ref: '#/components/responses/JobAccepted' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+  /api/v1/document-versions/{versionId}:submit-review:
+    post:
+      tags: [Documents]
+      operationId: submitDocumentReview
+      parameters:
+        - $ref: '#/components/parameters/VersionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewDecision' }
+      responses:
+        '200':
+          description: Version under review or returned
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentVersion' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+  /api/v1/document-versions/{versionId}:approve:
+    post:
+      tags: [Documents]
+      operationId: approveDocumentVersion
+      parameters:
+        - $ref: '#/components/parameters/VersionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApprovalAction' }
+      responses:
+        '200':
+          description: Approved version
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentVersion' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+  /api/v1/document-versions/{versionId}:publish:
+    post:
+      tags: [Documents]
+      operationId: publishDocumentVersion
+      parameters:
+        - $ref: '#/components/parameters/VersionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [channels, confirmation_statement]
+              properties:
+                channels:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [channel]
+                    properties:
+                      channel: { type: string, enum: [public_page, website, mini_program, app, store_poster, email, other] }
+                      location: { type: [string, 'null'], maxLength: 1000 }
+                      evidence_id: { type: [string, 'null'], format: uuid }
+                confirmation_statement: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        '200':
+          description: Effective document version
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentVersion' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/form-instances:
+    post:
+      tags: [Official Forms]
+      operationId: createFormInstance
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [template_code, scope_type, scope_refs]
+              properties:
+                template_code:
+                  type: string
+                  enum: [AUDIT_SELF_CHECK_CN_SMALL_2026, PIPIA_CN_SMALL_2026]
+                scope_type: { type: string, enum: [enterprise, business_scenario, processing_activity, period] }
+                scope_refs:
+                  type: array
+                  items: { type: string, format: uuid }
+                  uniqueItems: true
+      responses:
+        '201':
+          description: Form instance
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FormInstance' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/form-instances/{formInstanceId}:
+    get:
+      tags: [Official Forms]
+      operationId: getFormInstance
+      parameters:
+        - $ref: '#/components/parameters/FormInstanceId'
+      responses:
+        '200':
+          description: Form workpaper and official result
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FormInstance' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/form-instances/{formInstanceId}/responses/{itemCode}:
+    put:
+      tags: [Official Forms]
+      operationId: putFormResponse
+      parameters:
+        - $ref: '#/components/parameters/FormInstanceId'
+        - in: path
+          name: itemCode
+          required: true
+          schema: { type: string, pattern: '^[AP][0-9]{2}(?:\.D[1-3])?$' }
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FormResponseInput' }
+      responses:
+        '200':
+          description: Saved form response
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FormInstance' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/form-instances/{formInstanceId}:ready-to-sign:
+    post:
+      tags: [Official Forms]
+      operationId: prepareFormForSignature
+      parameters:
+        - $ref: '#/components/parameters/FormInstanceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Ready to sign
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FormInstance' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/form-instances/{formInstanceId}:sign:
+    post:
+      tags: [Official Forms]
+      operationId: signFormInstance
+      parameters:
+        - $ref: '#/components/parameters/FormInstanceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmation_statement, authentication_method]
+              properties:
+                confirmation_statement: { type: string, minLength: 1, maxLength: 1000 }
+                authentication_method: { type: string, enum: [password_reauth, otp, enterprise_sso] }
+      responses:
+        '200':
+          description: Signed immutable form instance
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FormInstance' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+  /api/v1/remediation-tasks:
+    get:
+      tags: [Remediation]
+      operationId: listRemediationTasks
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [open, in_progress, waiting_evidence, reviewing, completed, waived]
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Remediation task page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CursorPage'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/RemediationTask' }
+  /api/v1/remediation-tasks/{taskId}:submit:
+    post:
+      tags: [Remediation]
+      operationId: submitRemediationTask
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Submitted for review
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RemediationTask' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+  /api/v1/remediation-tasks/{taskId}:accept:
+    post:
+      tags: [Remediation]
+      operationId: acceptRemediationTask
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [accept, return] }
+                note: { type: [string, 'null'], maxLength: 2000 }
+      responses:
+        '200':
+          description: Reviewed task
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RemediationTask' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+  /public/v1/{publicCode}/privacy-notice:
+    get:
+      tags: [Public]
+      operationId: getPublicPrivacyNotice
+      security: []
+      parameters:
+        - in: path
+          name: publicCode
+          required: true
+          schema: { type: string, pattern: '^[A-Za-z0-9_-]{8,64}$' }
+      responses:
+        '200':
+          description: Published notice only
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicPrivacyNotice' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /public/v1/{publicCode}/rights-requests:
+    post:
+      tags: [Public]
+      operationId: createRightsRequest
+      security: []
+      parameters:
+        - in: path
+          name: publicCode
+          required: true
+          schema: { type: string, pattern: '^[A-Za-z0-9_-]{8,64}$' }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [request_type, contact_method, contact_value, request_detail, verification_token]
+              properties:
+                request_type: { type: string, enum: [access, copy, correct, delete, withdraw_consent, explain, other] }
+                contact_method: { type: string, enum: [email, mobile] }
+                contact_value: { type: string, minLength: 3, maxLength: 320 }
+                request_detail: { type: string, minLength: 1, maxLength: 5000 }
+                verification_token: { type: string, minLength: 8, maxLength: 2048 }
+      responses:
+        '202':
+          description: Request accepted without confirming account existence
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [request_code, status, status_token]
+                properties:
+                  request_code: { type: string }
+                  status: { type: string, const: received }
+                  status_token: { type: string }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /internal/v1/ai-runs:
+    post:
+      tags: [Internal AI]
+      operationId: createInternalAiRun
+      security:
+        - serviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [tenant_id, workflow_code, workflow_version, input_manifest, output_schema_id]
+              properties:
+                tenant_id: { type: string, format: uuid, writeOnly: true }
+                assessment_session_id: { type: [string, 'null'], format: uuid }
+                workflow_code:
+                  type: string
+                  enum: [enterprise_profile_interview, small_processor_qualification, scenario_triage, privacy_notice_generate_review, pipia_assessment, audit_self_check]
+                workflow_version: { type: string }
+                input_manifest: { $ref: '#/components/schemas/AiInputManifest' }
+                output_schema_id: { type: string, format: uri }
+                provider_policy: { $ref: '#/components/schemas/ProviderPolicy' }
+      responses:
+        '202':
+          description: AI run accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiRun' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    serviceAuth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://identity.example.invalid/oauth2/token
+          scopes: {}
+  parameters:
+    RequestId:
+      in: header
+      name: X-Request-Id
+      required: false
+      schema: { type: string, maxLength: 128 }
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: true
+      schema: { type: string, minLength: 16, maxLength: 128 }
+    IfMatch:
+      in: header
+      name: If-Match
+      required: true
+      schema: { type: string, pattern: '^"v[0-9]+"$' }
+    Cursor:
+      in: query
+      name: cursor
+      required: false
+      schema: { type: string, maxLength: 1024 }
+    ActivityId:
+      in: path
+      name: activityId
+      required: true
+      schema: { type: string, format: uuid }
+    SessionId:
+      in: path
+      name: sessionId
+      required: true
+      schema: { type: string, format: uuid }
+    AssessmentId:
+      in: path
+      name: assessmentId
+      required: true
+      schema: { type: string, format: uuid }
+    RunId:
+      in: path
+      name: runId
+      required: true
+      schema: { type: string, format: uuid }
+    DocumentId:
+      in: path
+      name: documentId
+      required: true
+      schema: { type: string, format: uuid }
+    VersionId:
+      in: path
+      name: versionId
+      required: true
+      schema: { type: string, format: uuid }
+    FormInstanceId:
+      in: path
+      name: formInstanceId
+      required: true
+      schema: { type: string, format: uuid }
+    TaskId:
+      in: path
+      name: taskId
+      required: true
+      schema: { type: string, format: uuid }
+  headers:
+    ETag:
+      description: Optimistic concurrency version
+      schema: { type: string, pattern: '^"v[0-9]+"$' }
+  responses:
+    JobAccepted:
+      description: Asynchronous job accepted
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/JobAccepted' }
+    NotFound:
+      description: Resource not found or not visible in current tenant
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: State or idempotency conflict
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PreconditionFailed:
+      description: ETag mismatch
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ValidationError:
+      description: Request or business validation failed
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    RateLimited:
+      description: Rate limited
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    CursorPage:
+      type: object
+      required: [items, has_more]
+      properties:
+        items: { type: array, items: {} }
+        next_cursor: { type: [string, 'null'] }
+        has_more: { type: boolean }
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, code, request_id]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer, minimum: 400, maximum: 599 }
+        code: { type: string, pattern: '^[A-Z][A-Z0-9_]+$' }
+        detail: { type: [string, 'null'] }
+        request_id: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [code, message]
+            properties:
+              pointer: { type: [string, 'null'] }
+              code: { type: string }
+              message: { type: string }
+    JobAccepted:
+      type: object
+      additionalProperties: false
+      required: [job_id, status, status_url]
+      properties:
+        job_id: { type: string, format: uuid }
+        status: { type: string, const: queued }
+        status_url: { type: string }
+    EnterpriseProfile:
+      type: object
+      additionalProperties: false
+      required: [enterprise_id, completeness, qualification_status, current_snapshot_id]
+      properties:
+        enterprise_id: { type: string, format: uuid, readOnly: true }
+        legal_name: { type: [string, 'null'] }
+        business_model: { type: [string, 'null'], enum: [B2B, B2C, both, internal_only, null] }
+        ownership: { type: [string, 'null'], enum: [domestic, foreign_invested, foreign_branch, mixed, unknown, null] }
+        completeness: { type: number, minimum: 0, maximum: 1 }
+        qualification_status: { type: string, enum: [not_assessed, eligible, conditional, out_of_scope, needs_review] }
+        current_snapshot_id: { type: [string, 'null'], format: uuid }
+        processing_activity_count: { type: integer, minimum: 0 }
+        open_task_count: { type: integer, minimum: 0 }
+    FactRecord:
+      type: object
+      additionalProperties: false
+      required: [fact_id, fact_code, subject_type, subject_id, value, status, source_type, created_at]
+      properties:
+        fact_id: { type: string, format: uuid, readOnly: true }
+        fact_code: { type: string }
+        subject_type:
+          type: string
+          enum: [enterprise, person_category, processing_activity, data_field, purpose, system, third_party, document, incident]
+        subject_id: { type: string, format: uuid }
+        value: {}
+        status: { type: string, enum: [candidate, confirmed, disputed, expired, superseded] }
+        source_type: { type: string, enum: [user_answer, uploaded_document, system_import, public_registry, expert_opinion, ai_inference] }
+        source_ref: { type: [string, 'null'] }
+        confirmed_by: { type: [string, 'null'], format: uuid }
+        confirmed_at: { type: [string, 'null'], format: date-time }
+        supersedes_fact_id: { type: [string, 'null'], format: uuid }
+        created_at: { type: string, format: date-time }
+    FactSnapshot:
+      type: object
+      additionalProperties: false
+      required: [snapshot_id, purpose, fact_ids, content_hash, created_at]
+      properties:
+        snapshot_id: { type: string, format: uuid }
+        purpose: { type: string, enum: [assessment, official_form, document_publication, audit_export] }
+        fact_ids:
+          type: array
+          items: { type: string, format: uuid }
+          uniqueItems: true
+        content_hash: { type: string, pattern: '^[A-Fa-f0-9]{64}$' }
+        created_at: { type: string, format: date-time }
+    ScenarioSummary:
+      type: object
+      additionalProperties: false
+      required: [code, type, display_name, recommended_when]
+      properties:
+        code: { type: string, pattern: '^SCN-[A-Z0-9-]+$' }
+        type: { type: string }
+        display_name: { type: string }
+        description: { type: string }
+        recommended_when: { type: string, readOnly: true }
+    ProcessingActivityCreate:
+      type: object
+      additionalProperties: false
+      required: [name, scenario_code]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        scenario_code: { type: string, pattern: '^SCN-[A-Z0-9-]+$' }
+        owner_user_id: { type: [string, 'null'], format: uuid }
+        status: { type: string, enum: [planned, active], default: planned }
+    ProcessingActivity:
+      allOf:
+        - $ref: '#/components/schemas/ProcessingActivityCreate'
+        - type: object
+          required: [activity_id, completeness, created_at]
+          properties:
+            activity_id: { type: string, format: uuid, readOnly: true }
+            completeness: { type: number, minimum: 0, maximum: 1 }
+            current_fact_snapshot_id: { type: [string, 'null'], format: uuid }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+    QuestionAnswer:
+      type: object
+      additionalProperties: false
+      required: [question_code, question_version, answer_status]
+      properties:
+        question_code: { type: string, pattern: '^Q-[A-Z0-9-]+$' }
+        question_version: { type: integer, minimum: 1 }
+        answer_status: { type: string, enum: [answered, unknown, skipped] }
+        value: {}
+        note: { type: [string, 'null'], maxLength: 2000 }
+    AssessmentSession:
+      type: object
+      additionalProperties: false
+      required: [session_id, session_type, question_tree_code, question_tree_version, status, visible_questions, progress]
+      properties:
+        session_id: { type: string, format: uuid, readOnly: true }
+        session_type: { type: string, enum: [onboarding, scenario, audit, pipia, document_review] }
+        processing_activity_id: { type: [string, 'null'], format: uuid }
+        question_tree_code: { type: string }
+        question_tree_version: { type: string }
+        status: { type: string, enum: [draft, in_progress, needs_input, fact_confirmation, analyzing, needs_review, completed, cancelled] }
+        current_phase_code: { type: [string, 'null'] }
+        visible_questions:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [code, version, prompt, answer_type, required]
+            properties:
+              code: { type: string }
+              version: { type: integer }
+              prompt: { type: string }
+              answer_type: { type: string }
+              required: { type: boolean }
+              options: { type: array, items: {} }
+        progress: { type: number, minimum: 0, maximum: 1 }
+        blocking_reasons: { type: array, items: { type: string } }
+        confirmed_fact_snapshot_id: { type: [string, 'null'], format: uuid }
+    RuleResult:
+      type: object
+      additionalProperties: false
+      required: [rule_code, ruleset_version, result]
+      properties:
+        rule_code: { type: string, pattern: '^R-[A-Z]+-[0-9]{3}$' }
+        ruleset_version: { type: string }
+        result: { type: string, enum: [PASS, FAIL, NOT_APPLICABLE, UNKNOWN, NEEDS_REVIEW] }
+        fact_refs: { type: array, items: { type: string, format: uuid } }
+        source_refs: { type: array, items: { type: string } }
+        messages: { type: array, items: { type: string } }
+    Finding:
+      type: object
+      additionalProperties: false
+      required: [finding_id, title, risk_level, status, review_required]
+      properties:
+        finding_id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        risk_level: { type: string, enum: [L0, L1, L2, L3] }
+        status: { type: string, enum: [draft, open, accepted, remediated, waived] }
+        fact_refs: { type: array, items: { type: string, format: uuid } }
+        source_refs: { type: array, items: { type: string } }
+        review_required: { type: boolean }
+    Assessment:
+      type: object
+      additionalProperties: false
+      required: [assessment_id, assessment_type, fact_snapshot_id, ruleset_version, status, rule_results, findings]
+      properties:
+        assessment_id: { type: string, format: uuid }
+        assessment_type: { type: string, enum: [qualification, triage, notice_review, pipia, audit] }
+        processing_activity_id: { type: [string, 'null'], format: uuid }
+        fact_snapshot_id: { type: string, format: uuid }
+        document_version_id: { type: [string, 'null'], format: uuid }
+        ruleset_version: { type: string }
+        status: { type: string, enum: [draft, running, needs_input, needs_review, completed, superseded] }
+        conclusion_code: { type: [string, 'null'] }
+        rule_results:
+          type: array
+          items: { $ref: '#/components/schemas/RuleResult' }
+        findings:
+          type: array
+          items: { $ref: '#/components/schemas/Finding' }
+    AiRun:
+      type: object
+      additionalProperties: false
+      required: [run_id, workflow_code, workflow_version, status, created_at]
+      properties:
+        run_id: { type: string, format: uuid }
+        workflow_code: { type: string }
+        workflow_version: { type: string }
+        provider_code: { type: [string, 'null'], enum: [qwen, kimi, deepseek, null] }
+        model_code: { type: [string, 'null'] }
+        status: { type: string, enum: [queued, running, needs_input, succeeded, failed, invalid_output] }
+        validated_output: { type: [object, 'null'] }
+        validation_errors: { type: array, items: { type: string } }
+        retryable: { type: boolean, default: false }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+    BusinessDocument:
+      type: object
+      additionalProperties: false
+      required: [document_id, document_type, name, default_language, versions]
+      properties:
+        document_id: { type: string, format: uuid }
+        document_type: { type: string }
+        name: { type: string }
+        default_language: { type: string }
+        current_effective_version_id: { type: [string, 'null'], format: uuid }
+        versions:
+          type: array
+          items: { $ref: '#/components/schemas/DocumentVersion' }
+    DocumentVersion:
+      type: object
+      additionalProperties: false
+      required: [version_id, document_id, version_number, status, content_hash, fact_snapshot_id]
+      properties:
+        version_id: { type: string, format: uuid }
+        document_id: { type: string, format: uuid }
+        version_number: { type: string }
+        status: { type: string, enum: [draft, pending_confirmation, under_review, approved, scheduled, effective, superseded, archived] }
+        content_hash: { type: string, pattern: '^[A-Fa-f0-9]{64}$' }
+        fact_snapshot_id: { type: string, format: uuid }
+        supersedes_version_id: { type: [string, 'null'], format: uuid }
+        change_summary: { type: [object, 'null'] }
+        approved_by: { type: [string, 'null'], format: uuid }
+        approved_at: { type: [string, 'null'], format: date-time }
+        published_at: { type: [string, 'null'], format: date-time }
+    ReviewDecision:
+      type: object
+      additionalProperties: false
+      required: [decision, note]
+      properties:
+        decision: { type: string, enum: [accept, request_changes, escalate] }
+        note: { type: string, minLength: 1, maxLength: 5000 }
+    ApprovalAction:
+      type: object
+      additionalProperties: false
+      required: [confirmation_statement]
+      properties:
+        confirmation_statement: { type: string, minLength: 1, maxLength: 1000 }
+    FormResponseInput:
+      type: object
+      additionalProperties: false
+      required: [official_result]
+      properties:
+        official_result: { type: string }
+        official_note: { type: [string, 'null'], maxLength: 5000 }
+        applicability_reason: { type: [string, 'null'], maxLength: 5000 }
+        fact_refs: { type: array, items: { type: string, format: uuid }, uniqueItems: true }
+        evidence_refs: { type: array, items: { type: string, format: uuid }, uniqueItems: true }
+    FormInstance:
+      type: object
+      additionalProperties: false
+      required: [form_instance_id, template_code, template_version, scope_type, scope_refs, status, responses]
+      properties:
+        form_instance_id: { type: string, format: uuid }
+        template_code: { type: string, enum: [AUDIT_SELF_CHECK_CN_SMALL_2026, PIPIA_CN_SMALL_2026] }
+        template_version: { type: string }
+        scope_type: { type: string }
+        scope_refs: { type: array, items: { type: string, format: uuid } }
+        status: { type: string, enum: [draft, collecting, reviewing, remediation, ready_to_sign, signed, archived] }
+        fact_snapshot_id: { type: [string, 'null'], format: uuid }
+        responses: { type: object, additionalProperties: { $ref: '#/components/schemas/FormResponseInput' } }
+        signed_content_hash: { type: [string, 'null'], pattern: '^[A-Fa-f0-9]{64}$' }
+    RemediationTask:
+      type: object
+      additionalProperties: false
+      required: [task_id, title, description, status, acceptance_criteria]
+      properties:
+        task_id: { type: string, format: uuid }
+        finding_id: { type: [string, 'null'], format: uuid }
+        title: { type: string }
+        description: { type: string }
+        owner_user_id: { type: [string, 'null'], format: uuid }
+        owner_name: { type: [string, 'null'] }
+        due_date: { type: [string, 'null'], format: date }
+        status: { type: string, enum: [open, in_progress, waiting_evidence, reviewing, completed, waived] }
+        acceptance_criteria: { type: string }
+        evidence_ids: { type: array, items: { type: string, format: uuid } }
+    PublicPrivacyNotice:
+      type: object
+      additionalProperties: false
+      required: [enterprise_name, document_name, version_number, published_at, sections, rights_channels]
+      properties:
+        enterprise_name: { type: string }
+        document_name: { type: string }
+        version_number: { type: string }
+        published_at: { type: string, format: date-time }
+        updated_at: { type: [string, 'null'], format: date-time }
+        sections:
+          type: array
+          items:
+            type: object
+            required: [heading, content]
+            properties:
+              heading: { type: string }
+              content: { type: string }
+        rights_channels:
+          type: array
+          items:
+            type: object
+            required: [type, value]
+            properties:
+              type: { type: string, enum: [web_form, email, phone, address] }
+              value: { type: string }
+    AiInputManifest:
+      type: object
+      additionalProperties: false
+      required: [fact_snapshot_id, fact_ids, document_excerpt_ids, rule_result_ids]
+      properties:
+        fact_snapshot_id: { type: string, format: uuid }
+        fact_ids: { type: array, items: { type: string, format: uuid }, uniqueItems: true }
+        document_excerpt_ids: { type: array, items: { type: string, format: uuid }, uniqueItems: true }
+        rule_result_ids: { type: array, items: { type: string, format: uuid }, uniqueItems: true }
+        regulation_source_refs: { type: array, items: { type: string }, uniqueItems: true }
+    ProviderPolicy:
+      type: object
+      additionalProperties: false
+      properties:
+        capability: { type: string, enum: [extraction, long_context_review, legal_analysis, drafting] }
+        preferred_providers:
+          type: array
+          items: { type: string, enum: [qwen, kimi, deepseek] }
+          uniqueItems: true
+        max_attempts: { type: integer, minimum: 1, maximum: 3, default: 2 }
+        max_input_tokens: { type: integer, minimum: 1000 }
+        max_output_tokens: { type: integer, minimum: 100 }

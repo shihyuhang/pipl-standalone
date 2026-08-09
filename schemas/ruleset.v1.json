@@ -1,0 +1,517 @@
+{
+  "rulesetCode": "SMALL_PROCESSOR_CN",
+  "version": "1.0.0",
+  "status": "draft",
+  "expressionLanguage": "PIPL-CEL-1",
+  "sourceRegistry": {
+    "PIPL-2021": { "title": "中华人民共和国个人信息保护法", "url": "https://www.cac.gov.cn/2021-08/20/c_1631050028355286.htm" },
+    "NDSR-2024": { "title": "网络数据安全管理条例", "url": "https://www.cac.gov.cn/2024-09/30/c_1729384452307680.htm" },
+    "AUDIT-2025": { "title": "个人信息保护合规审计管理办法", "url": "https://www.cac.gov.cn/2025-02/14/c_1741233507681519.htm" },
+    "XFER-2024": { "title": "促进和规范数据跨境流动规定", "url": "https://www.cac.gov.cn/2024-03/22/c_1712776611775634.htm" },
+    "SMALL-2026": { "title": "小型个人信息处理者个人信息保护简化措施规定", "url": "https://www.gzwxb.gov.cn/context/contextId/216547" },
+    "SMALL-QA-2026": { "title": "小型个人信息处理者个人信息保护简化措施规定答记者问", "url": "https://www.cac.gov.cn/2026-07/24/c_1786638889576451.htm" },
+    "OFFICIAL-FORMS-2026": { "title": "小型处理者合规审计自查表和影响评估表", "templateRefs": ["AUDIT_SELF_CHECK_CN_SMALL_2026", "PIPIA_CN_SMALL_2026"] }
+  },
+  "resultCodes": ["PASS", "FAIL", "NOT_APPLICABLE", "UNKNOWN", "NEEDS_REVIEW"],
+  "rules": [
+    {
+      "code": "R-QUAL-001",
+      "type": "legal_routing",
+      "sources": ["PIPL-2021:3", "SMALL-2026:2"],
+      "requiredFacts": ["ORG.REGISTERED_REGION", "ORG.OPERATING_REGIONS"],
+      "evaluation": "routeByTerritorialFacts()",
+      "onUnknown": ["ASK_TERRITORIAL_SCOPE", "BLOCK_FORMAL_QUALIFICATION"],
+      "humanReviewWhen": "hasComplexExtraterritorialFacts()"
+    },
+    {
+      "code": "R-QUAL-002",
+      "type": "hard_legal",
+      "sources": ["SMALL-2026:2", "SMALL-QA-2026:Q2-Q3"],
+      "requiredFacts": ["SCOPE.PERSON_COUNT", "SCOPE.COUNT_AS_OF_DATE", "SCOPE.COUNT_METHOD"],
+      "evaluation": "personCountMax() < 100000 ? PASS : personCountMin() >= 100000 ? FAIL : UNKNOWN",
+      "onFail": ["ROUTE_OUT_OF_SMALL_PROCESSOR_PATH"],
+      "onUnknown": ["CREATE_PERSON_COUNT_VERIFICATION_TASK", "BLOCK_FORMAL_QUALIFICATION"]
+    },
+    {
+      "code": "R-QUAL-003",
+      "type": "hard_legal",
+      "sources": ["SMALL-QA-2026:Q3"],
+      "requiredFacts": ["SCOPE.DELETED_EXCLUDED", "SCOPE.DEDUP_METHOD", "SCOPE.COUNT_SYSTEMS"],
+      "evaluation": "fact('SCOPE.DELETED_EXCLUDED') == true && factKnown('SCOPE.DEDUP_METHOD') && factKnown('SCOPE.COUNT_SYSTEMS') ? PASS : UNKNOWN",
+      "onUnknown": ["CREATE_PERSON_COUNT_VERIFICATION_TASK"]
+    },
+    {
+      "code": "R-QUAL-004",
+      "type": "product_safety",
+      "sources": ["SMALL-2026:2"],
+      "requiredFacts": ["SCOPE.PERSON_COUNT", "SCOPE.COUNT_AS_OF_DATE"],
+      "evaluation": "personCountFactFresh(90) ? PASS : UNKNOWN",
+      "actions": ["SET_THRESHOLD_STATUS", "SCHEDULE_COUNT_RECHECK"],
+      "thresholds": [60000, 80000, 95000, 100000]
+    },
+    {
+      "code": "R-BASE-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:5", "PIPL-2021:6"],
+      "requiredFacts": ["ACT.PURPOSES", "ACT.DATA_FIELDS", "ACT.MANDATORY_FIELDS", "ACT.NECESSITY_REASON"],
+      "evaluation": "allMandatoryFieldsHaveDirectPurposeAndNecessity()",
+      "onFail": ["CREATE_DATA_MINIMIZATION_FINDING", "CREATE_REMEDIATION_TASK"],
+      "officialMappings": ["A01", "A02", "A12", "P01.D1", "P05.D1"],
+      "aiRole": "draft_necessity_analysis_only"
+    },
+    {
+      "code": "R-BASE-002",
+      "type": "legal_routing",
+      "sources": ["PIPL-2021:13"],
+      "requiredFacts": ["ACT.LEGAL_BASIS_FACTS"],
+      "evaluation": "legalBasisSupportingFactsComplete() ? PASS : UNKNOWN",
+      "onUnknown": ["ASK_LEGAL_BASIS_FACTS"],
+      "humanReviewWhen": "legalBasisIsDisputed()",
+      "officialMappings": ["A01"]
+    },
+    {
+      "code": "R-CONSENT-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:14"],
+      "appliesWhen": "usesConsentBasis()",
+      "requiredFacts": ["ACT.NOTICE_VERSION", "CONSENT.MECHANISM", "CONSENT.RECORD_FIELDS"],
+      "evaluation": "consentIsInformedVoluntaryExplicitAndRecorded()",
+      "onFail": ["CREATE_CONSENT_REMEDIATION_TASK"],
+      "officialMappings": ["A01.01"]
+    },
+    {
+      "code": "R-CONSENT-002",
+      "type": "legal_routing",
+      "sources": ["PIPL-2021:14"],
+      "appliesWhen": "usesConsentBasis() && purposeMethodOrDataTypeChanged()",
+      "requiredFacts": ["ACT.PURPOSES", "ACT.DATA_FIELDS", "ACT.CONSENT_MECHANISM"],
+      "evaluation": "reconsentCompletedForCurrentFactSnapshot()",
+      "onFail": ["CREATE_RECONSENT_TASK"],
+      "officialMappings": ["A01.02"],
+      "aiRole": "semantic_change_candidate"
+    },
+    {
+      "code": "R-CONSENT-003",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:15"],
+      "appliesWhen": "usesConsentBasis()",
+      "requiredFacts": ["CONSENT.WITHDRAWAL", "RET.ACTION"],
+      "evaluation": "withdrawalChannelIsConvenientAndExecutable()",
+      "onFail": ["CREATE_WITHDRAWAL_MECHANISM_TASK"],
+      "officialMappings": ["A02", "A15", "A16"]
+    },
+    {
+      "code": "R-CONSENT-004",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:16"],
+      "requiredFacts": ["ACT.MANDATORY_FIELDS", "ACT.NECESSITY_REASON"],
+      "evaluation": "hasUnnecessaryMandatoryFields() ? FAIL : PASS",
+      "onFail": ["CREATE_OPTIONAL_OR_REMOVE_FIELD_TASK"],
+      "officialMappings": ["A02", "A13"]
+    },
+    {
+      "code": "R-NOTICE-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:17", "NDSR-2024:21"],
+      "requiredFacts": ["ORG.LEGAL_NAME", "ORG.PRIVACY_CONTACT_CHANNEL", "ACT.PURPOSES", "ACT.DATA_FIELDS", "ACT.RETENTION_RULES", "ACT.RIGHTS_CHANNEL"],
+      "evaluation": "noticeCoreFieldsComplete()",
+      "onFail": ["BLOCK_DOCUMENT_APPROVAL", "CREATE_NOTICE_COMPLETENESS_TASK"],
+      "officialMappings": ["A02", "A03"]
+    },
+    {
+      "code": "R-NOTICE-002",
+      "type": "hard_legal",
+      "sources": ["SMALL-2026:4"],
+      "requiredFacts": ["ORG.LEGAL_NAME", "ORG.PRIVACY_CONTACT_CHANNEL", "ACT.PURPOSES", "ACT.DATA_FIELDS", "ACT.RETENTION_RULES", "NOTICE.CHANNEL"],
+      "evaluation": "smallProcessorNoticeFieldsAndChannelComplete()",
+      "onFail": ["BLOCK_DOCUMENT_APPROVAL"],
+      "officialMappings": ["A02", "A03"]
+    },
+    {
+      "code": "R-NOTICE-003",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:17", "SMALL-2026:6"],
+      "requiredFacts": ["NOTICE.CHANNEL", "NOTICE.PROMINENCE"],
+      "evaluation": "noticeIsProminentReadableAccessibleAndSavable()",
+      "onFail": ["CREATE_NOTICE_PRESENTATION_TASK"],
+      "officialMappings": ["A03"]
+    },
+    {
+      "code": "R-NOTICE-004",
+      "type": "legal_routing",
+      "sources": ["SMALL-2026:6"],
+      "requiredFacts": ["DATA.IS_SENSITIVE", "PURPOSE.SERVICE_NECESSITY", "ACT.THIRD_PARTY_RELATIONS", "ACT.PUBLIC_DISCLOSURE", "ACT.NOTICE_VERSION"],
+      "evaluation": "onlyPublicNoticeConditionsAllTrue() ? PASS : anyRequiredFactUnknown() ? UNKNOWN : NOT_APPLICABLE",
+      "onPass": ["ALLOW_PUBLIC_NOTICE_ONLY_PATH"],
+      "onUnknown": ["BLOCK_SIMPLIFIED_NOTICE_PATH"],
+      "officialMappings": ["A02", "A03"]
+    },
+    {
+      "code": "R-NOTICE-005",
+      "type": "legal_routing",
+      "sources": ["SMALL-2026:7"],
+      "appliesWhen": "publicNoticeCompleted() && personActivelyProvidesNecessaryData()",
+      "evaluation": "dataIsNecessaryAndNotSensitiveAndWithinNotice() ? PASS : NOT_APPLICABLE",
+      "onPass": ["ALLOW_ACTIVE_PROVISION_PATH"],
+      "officialMappings": ["A01", "A02"]
+    },
+    {
+      "code": "R-NOTICE-006",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:31", "NDSR-2024:21", "SMALL-2026:4"],
+      "appliesWhen": "hasMinorPersons() || minorStatusUnknown()",
+      "requiredFacts": ["PERSON.UNDER_14_POSSIBLE", "ACT.NOTICE_VERSION"],
+      "evaluation": "hasMinorPersons() ? hasDedicatedMinorNotice() ? NEEDS_REVIEW : FAIL : UNKNOWN",
+      "onFail": ["CREATE_MINOR_NOTICE_TASK", "REQUIRE_SPECIALIST_REVIEW"],
+      "officialMappings": ["A13", "P01", "P05"]
+    },
+    {
+      "code": "R-PLATFORM-001",
+      "type": "legal_routing",
+      "sources": ["SMALL-2026:8"],
+      "requiredFacts": ["ORG.PLATFORM_ONLY", "ACT.THIRD_PARTY_RELATIONS", "ACT.PURPOSES", "ACT.DATA_FIELDS"],
+      "evaluation": "platformCoverageConditionsComplete() ? NEEDS_REVIEW : UNKNOWN",
+      "onPass": ["ALLOW_PLATFORM_COVERAGE_PATH"],
+      "humanReviewWhen": "true",
+      "officialMappings": ["A02", "A03", "A22"]
+    },
+    {
+      "code": "R-DOC-001",
+      "type": "product_safety",
+      "sources": ["PIPL-2021:17"],
+      "appliesWhen": "documentStatus() == 'effective'",
+      "evaluation": "documentContentUnchanged()",
+      "onFail": ["REJECT_UPDATE", "REQUIRE_NEW_DOCUMENT_VERSION"],
+      "officialMappings": ["A02", "A03"]
+    },
+    {
+      "code": "R-SENS-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:28", "PIPL-2021:55"],
+      "appliesWhen": "hasSensitiveData()",
+      "evaluation": "pipiaExists('P01') ? PASS : FAIL",
+      "onFail": ["CREATE_PIPIA:P01", "BLOCK_SCENARIO_ACTIVATION"],
+      "officialMappings": ["A12", "A22", "P01"]
+    },
+    {
+      "code": "R-SENS-002",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:29", "SMALL-2026:7"],
+      "appliesWhen": "hasSensitiveData() && usesConsentBasis()",
+      "requiredFacts": ["CONSENT.SEPARATE", "CONSENT.WRITTEN", "CONSENT.RECORD_FIELDS"],
+      "evaluation": "separateConsentSatisfied()",
+      "onFail": ["CREATE_SEPARATE_CONSENT_TASK"],
+      "officialMappings": ["A01", "A12"]
+    },
+    {
+      "code": "R-SENS-003",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:30", "SMALL-2026:7"],
+      "appliesWhen": "hasSensitiveData()",
+      "evaluation": "sensitiveNecessityAndImpactDisclosed()",
+      "onFail": ["BLOCK_DOCUMENT_APPROVAL", "CREATE_SENSITIVE_NOTICE_TASK"],
+      "officialMappings": ["A12", "P01"]
+    },
+    {
+      "code": "R-MINOR-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:31"],
+      "appliesWhen": "hasMinorPersons() || minorStatusUnknown()",
+      "evaluation": "minorStatusUnknown() ? UNKNOWN : guardianConsentAndDedicatedRuleComplete() ? NEEDS_REVIEW : FAIL",
+      "onFail": ["CREATE_GUARDIAN_CONSENT_TASK", "CREATE_MINOR_NOTICE_TASK", "REQUIRE_SPECIALIST_REVIEW"],
+      "officialMappings": ["A12", "A13", "P01", "P05"]
+    },
+    {
+      "code": "R-PARTY-001",
+      "type": "legal_routing",
+      "sources": ["PIPL-2021:20"],
+      "appliesWhen": "thirdPartyRoleConfirmed('joint')",
+      "evaluation": "jointProcessingAgreementComplete()",
+      "onFail": ["CREATE_JOINT_PROCESSING_AGREEMENT_TASK"],
+      "humanReviewWhen": "thirdPartyRoleUnknown()",
+      "officialMappings": ["A04"]
+    },
+    {
+      "code": "R-PARTY-002",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:21", "PIPL-2021:55"],
+      "appliesWhen": "thirdPartyRoleConfirmed('entrusted')",
+      "evaluation": "processorContractAndSupervisionComplete() && pipiaExists('P03')",
+      "onFail": ["CREATE_PROCESSOR_CONTRACT_TASK", "CREATE_PROCESSOR_SUPERVISION_TASK", "CREATE_PIPIA:P03"],
+      "officialMappings": ["A05", "A22", "P03"]
+    },
+    {
+      "code": "R-PARTY-003",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:23", "PIPL-2021:55"],
+      "appliesWhen": "thirdPartyRoleConfirmed('recipient')",
+      "evaluation": "recipientNoticeSeparateConsentAndPipiaComplete()",
+      "onFail": ["CREATE_RECIPIENT_NOTICE_TASK", "CREATE_SEPARATE_CONSENT_TASK", "CREATE_PIPIA:P03"],
+      "officialMappings": ["A07", "A22", "P03"]
+    },
+    {
+      "code": "R-PUBLIC-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:25", "PIPL-2021:55"],
+      "appliesWhen": "publishesPersonalInformation()",
+      "evaluation": "publicDisclosureSeparateConsentAndPipiaComplete()",
+      "onFail": ["CREATE_SEPARATE_CONSENT_TASK", "CREATE_PIPIA:P03"],
+      "officialMappings": ["A09", "A22", "P03"]
+    },
+    {
+      "code": "R-PUBLIC-002",
+      "type": "legal_routing",
+      "sources": ["PIPL-2021:27"],
+      "appliesWhen": "processesPublicSourceData()",
+      "evaluation": "publicSourceUseWithinReasonableScope() ? PASS : publicPurposeOrRefusalUnknown() ? UNKNOWN : NEEDS_REVIEW",
+      "onUnknown": ["ASK_PUBLIC_SOURCE_PURPOSE_AND_REFUSAL"],
+      "officialMappings": ["A11", "P05"],
+      "aiRole": "compare_public_purpose_and_actual_use"
+    },
+    {
+      "code": "R-AUTO-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:24", "PIPL-2021:55", "NDSR-2024:42"],
+      "appliesWhen": "usesAutomatedDecision()",
+      "evaluation": "pipiaExists('P02') && automatedDecisionTransparencyFairnessAndRightsComplete()",
+      "onFail": ["CREATE_PIPIA:P02", "CREATE_AUTOMATED_DECISION_REMEDIATION_TASK"],
+      "humanReviewWhen": "decisionMateriallyAffectsRights()",
+      "officialMappings": ["A08", "A22", "P02"]
+    },
+    {
+      "code": "R-CAMERA-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:26"],
+      "appliesWhen": "usesPublicPlaceCameraOrIdentityDevice()",
+      "evaluation": "publicSafetyNecessityAndNoticeSignComplete() && noOtherUseWithoutSeparateConsent()",
+      "onFail": ["CREATE_CAMERA_REMEDIATION_TASK"],
+      "humanReviewWhen": "usesFacialRecognition() || usesVideoForMarketingOrPerformance()",
+      "officialMappings": ["A10", "P01", "P05"]
+    },
+    {
+      "code": "R-TRANSFER-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:22", "SMALL-2026:9"],
+      "appliesWhen": "enterpriseStructuralTransferPlanned()",
+      "evaluation": "recipientNoticeAndPublicationWindowComplete(30,30)",
+      "onFail": ["BLOCK_TRANSFER_COMPLETION", "CREATE_TRANSFER_NOTICE_TASK"],
+      "officialMappings": ["A06"]
+    },
+    {
+      "code": "R-RET-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:19"],
+      "requiredFacts": ["ACT.RETENTION_RULES", "RET.JUSTIFICATION", "RET.ACTION"],
+      "evaluation": "allDataCategoriesHaveShortestNecessaryRetentionRule()",
+      "onFail": ["CREATE_RETENTION_RULE_TASK"],
+      "officialMappings": ["A02", "A15"]
+    },
+    {
+      "code": "R-DELETE-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:47"],
+      "appliesWhen": "deletionTriggerExists()",
+      "evaluation": "deletionOrRestrictionExecutedInAllSystems()",
+      "onFail": ["CREATE_DELETION_EXECUTION_TASK"],
+      "officialMappings": ["A15"]
+    },
+    {
+      "code": "R-DELETE-002",
+      "type": "hard_legal",
+      "sources": ["SMALL-2026:12"],
+      "appliesWhen": "productOrServiceStopped()",
+      "evaluation": "personalInformationDeleted() ? PASS : deletionObjectivelyImpossible() ? NEEDS_REVIEW : FAIL",
+      "onFail": ["CREATE_STOP_SERVICE_DELETION_TASK"],
+      "onReview": ["CREATE_AUTHORITY_ASSISTANCE_REQUEST_DRAFT"],
+      "officialMappings": ["A15"]
+    },
+    {
+      "code": "R-RIGHTS-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:44-50", "SMALL-2026:11"],
+      "requiredFacts": ["RIGHTS.CHANNELS", "RIGHTS.OWNER", "RIGHTS.TRACKING", "RIGHTS.REJECTION_REASON"],
+      "evaluation": "rightsRequestMechanismCompleteAndPublic()",
+      "onFail": ["CREATE_RIGHTS_MECHANISM_TASK"],
+      "officialMappings": ["A16", "A17"]
+    },
+    {
+      "code": "R-RIGHTS-002",
+      "type": "product_safety",
+      "sources": ["PIPL-2021:45-50"],
+      "appliesWhen": "rightsRequestMarkedCompleted()",
+      "evaluation": "allAffectedSystemsHaveExecutionEvidence()",
+      "onFail": ["REJECT_TASK_COMPLETION", "REQUEST_EXECUTION_EVIDENCE"],
+      "officialMappings": ["A15", "A16", "A17"]
+    },
+    {
+      "code": "R-AUDIT-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:54", "AUDIT-2025", "SMALL-2026:13", "SMALL-2026:17"],
+      "evaluation": "validCertificationCoversAudit() ? NOT_APPLICABLE : auditCompletedWithinYears(5) ? PASS : FAIL",
+      "onFail": ["CREATE_AUDIT_FORM_INSTANCE"],
+      "retentionYears": 5,
+      "officialMappings": ["A01-A24"]
+    },
+    {
+      "code": "R-PIPIA-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:55", "SMALL-2026:14"],
+      "evaluation": "createPipiaForConfirmedTriggers()",
+      "triggerMap": {
+        "hasSensitiveData()": "P01",
+        "usesAutomatedDecision()": "P02",
+        "hasConfirmedEntrustedProvidedOrPublicProcessing()": "P03",
+        "hasConfirmedOverseasStorageOrAccess()": "P04",
+        "otherMajorImpactConfirmed()": "P05"
+      },
+      "officialMappings": ["A22", "P01", "P02", "P03", "P04", "P05"]
+    },
+    {
+      "code": "R-PIPIA-002",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:56", "SMALL-2026:14", "OFFICIAL-FORMS-2026"],
+      "appliesWhen": "pipiaInstanceExists()",
+      "evaluation": "allApplicablePipiaDimensionsCompleteAndOfficialEnumsValid()",
+      "onFail": ["BLOCK_PIPIA_SIGNATURE"],
+      "retentionYears": 3,
+      "officialMappings": ["P01", "P02", "P03", "P04", "P05"]
+    },
+    {
+      "code": "R-PIPIA-003",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:55"],
+      "appliesWhen": "pipiaTriggerExists()",
+      "evaluation": "pipiaSignedBeforeScenarioActivation() ? PASS : scenarioAlreadyActive() ? FAIL : UNKNOWN",
+      "onFail": ["CREATE_LATE_PIPIA_FINDING", "BLOCK_FALSE_BACKDATING"],
+      "officialMappings": ["A22"]
+    },
+    {
+      "code": "R-GOV-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:51", "SMALL-2026:15"],
+      "requiredFacts": ["GOV.POLICY_EXISTS", "GOV.ROLE_ASSIGNMENT", "GOV.CLASSIFICATION", "GOV.PIPIA_PROCESS", "GOV.AUDIT_PROCESS", "GOV.COMPLAINT_PROCESS", "GOV.TRAINING_PLAN", "GOV.ACCOUNTABILITY"],
+      "evaluation": "smallProcessorInternalManagementRequirementsComplete()",
+      "onFail": ["CREATE_INTERNAL_POLICY_TASKS"],
+      "officialMappings": ["A18"]
+    },
+    {
+      "code": "R-SEC-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:51", "NDSR-2024:9"],
+      "requiredFacts": ["SEC.ACCESS_CONTROL", "SEC.ENCRYPTION", "SEC.LOGGING", "SEC.BACKUP_RECOVERY"],
+      "evaluation": "baselineSecurityMeasuresAppropriateToRisk()",
+      "onFail": ["CREATE_SECURITY_REMEDIATION_TASKS"],
+      "onUnknown": ["CREATE_IT_CONFIRMATION_TASK"],
+      "officialMappings": ["A19", "A20"]
+    },
+    {
+      "code": "R-GOV-002",
+      "type": "legal_routing",
+      "sources": ["PIPL-2021:52", "SMALL-2026:4", "SMALL-2026:11"],
+      "requiredFacts": ["ORG.PRIVACY_CONTACT_NAME", "ORG.PRIVACY_CONTACT_ROLE", "ORG.PRIVACY_CONTACT_CHANNEL"],
+      "evaluation": "privacyHandlingContactComplete()",
+      "onFail": ["CREATE_PRIVACY_CONTACT_TASK"],
+      "officialMappings": ["A21"]
+    },
+    {
+      "code": "R-INCIDENT-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:57", "SMALL-2026:16"],
+      "appliesWhen": "incidentOccurredOrSuspected()",
+      "evaluation": "immediateRemediationAndNotificationDecisionDocumented()",
+      "onFail": ["ACTIVATE_INCIDENT_MODE", "REQUIRE_HUMAN_NOTIFICATION_CONFIRMATION"],
+      "humanReviewWhen": "incidentIsSerious() || suspectedCrime()",
+      "officialMappings": ["A23", "A24"],
+      "aiRole": "draft_response_steps_and_notification_only"
+    },
+    {
+      "code": "R-INCIDENT-002",
+      "type": "product_safety",
+      "sources": ["PIPL-2021:57", "AUDIT-2025"],
+      "appliesWhen": "incidentRecordExists()",
+      "evaluation": "incidentRecordAppendOnly()",
+      "onFail": ["REJECT_DELETE_OR_OVERWRITE"],
+      "officialMappings": ["A23", "A24"]
+    },
+    {
+      "code": "R-XFER-001",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:38", "PIPL-2021:39", "PIPL-2021:55"],
+      "evaluation": "hasConfirmedOverseasStorageOrAccess() ? pipiaExists('P04') ? PASS : FAIL : overseasStatusUnknown() ? UNKNOWN : NOT_APPLICABLE",
+      "onFail": ["CREATE_PIPIA:P04"],
+      "onUnknown": ["CREATE_CROSS_BORDER_VERIFICATION_TASK"],
+      "guard": "ORG.OWNERSHIP alone must never set XFER.EXISTS=yes",
+      "officialMappings": ["A14", "P04"]
+    },
+    {
+      "code": "R-XFER-002",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:39", "SMALL-2026:10"],
+      "appliesWhen": "hasConfirmedOverseasStorageOrAccess()",
+      "evaluation": "overseasRecipientNoticeAndSeparateConsentComplete()",
+      "onFail": ["CREATE_CROSS_BORDER_NOTICE_TASK", "CREATE_SEPARATE_CONSENT_TASK"],
+      "officialMappings": ["A01", "A14", "P04"]
+    },
+    {
+      "code": "R-XFER-003",
+      "type": "legal_routing",
+      "sources": ["SMALL-2026:10", "XFER-2024"],
+      "appliesWhen": "hasConfirmedOverseasStorageOrAccess()",
+      "requiredFacts": ["ORG.CIIO_STATUS", "XFER.PURPOSE", "XFER.NON_SENSITIVE_COUNT_YTD", "XFER.SENSITIVE_COUNT_YTD", "XFER.PROCEDURE_EVIDENCE"],
+      "evaluation": "importantDataPossible() || ciioStatusUnknown() || crossBorderCountsUnknown() ? NEEDS_REVIEW : smallProcessorCrossBorderExemptionCandidate() ? NEEDS_REVIEW : NOT_APPLICABLE",
+      "onReview": ["CREATE_CROSS_BORDER_PROCEDURE_REVIEW_TASK"],
+      "officialMappings": ["A14", "P04"]
+    },
+    {
+      "code": "R-FORM-001",
+      "type": "product_safety",
+      "sources": ["OFFICIAL-FORMS-2026:AUDIT"],
+      "evaluation": "auditTemplateHasExactItemsAndEnums(24,100,['COMPLIANT','NON_COMPLIANT','NOT_APPLICABLE'])",
+      "onFail": ["BLOCK_TEMPLATE_PUBLICATION", "BLOCK_FORM_SIGNATURE"]
+    },
+    {
+      "code": "R-FORM-002",
+      "type": "product_safety",
+      "sources": ["OFFICIAL-FORMS-2026:PIPIA"],
+      "evaluation": "pipiaTemplateHasExactMatrixAndEnums(5,3)",
+      "guards": ["PIPIA impact dimension must not accept NO_IMPACT as official value"],
+      "onFail": ["BLOCK_TEMPLATE_PUBLICATION", "BLOCK_FORM_SIGNATURE"]
+    },
+    {
+      "code": "R-FORM-003",
+      "type": "product_safety",
+      "sources": ["OFFICIAL-FORMS-2026"],
+      "appliesWhen": "formSignatureRequested()",
+      "evaluation": "noUnknownConflictOrPendingReview() && signedSnapshotComplete()",
+      "onFail": ["BLOCK_FORM_SIGNATURE"],
+      "onPass": ["FREEZE_TEMPLATE_FACTS_RULES_DOCUMENTS_EVIDENCE_AND_HASH"]
+    },
+    {
+      "code": "R-DOC-002",
+      "type": "hard_legal",
+      "sources": ["PIPL-2021:17"],
+      "appliesWhen": "documentReviewRequested()",
+      "evaluation": "documentMatchesConfirmedFacts()",
+      "onFail": ["CREATE_DOCUMENT_GAP_FINDINGS", "BLOCK_DOCUMENT_APPROVAL"],
+      "aiRole": "semantic_comparison_candidate",
+      "officialMappings": ["A02", "A03"]
+    },
+    {
+      "code": "R-DOC-003",
+      "type": "product_safety",
+      "sources": ["PIPL-2021:17"],
+      "appliesWhen": "confirmedFactChanged()",
+      "evaluation": "identifyAffectedEffectiveDocuments()",
+      "actions": ["MARK_DOCUMENTS_NEEDS_REVIEW", "CREATE_DRAFT_REVISION", "DO_NOT_AUTO_EDIT_EFFECTIVE_VERSION"]
+    }
+  ],
+  "globalGuards": [
+    "unknown must never be coerced to false",
+    "ai outputs cannot set official conclusions",
+    "ai_inference facts remain candidate until human confirmation",
+    "foreign ownership never implies cross-border transfer",
+    "B2B status never implies absence of personal information",
+    "signed forms and effective documents are immutable",
+    "rules execute only within the current tenant context"
+  ]
+}

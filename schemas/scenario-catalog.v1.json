@@ -1,0 +1,196 @@
+{
+  "catalogCode": "SMALL_PROCESSOR_SCENARIOS",
+  "version": "1.0.0",
+  "status": "draft",
+  "triageOutcomes": [
+    "SIMPLE_RECORD",
+    "REMEDIATE_THEN_PROCEED",
+    "PIPIA_REQUIRED",
+    "EXPERT_REVIEW",
+    "OUT_OF_SMALL_SCOPE"
+  ],
+  "scenarios": [
+    {
+      "code": "SCN-B2B-CONTACT",
+      "type": "b2b_contact",
+      "displayName": "管理客户和供应商联系人",
+      "description": "项目、采购、售后和正常商务联系中的自然人联系人信息。",
+      "recommendedWhen": "fact('ORG.BUSINESS_MODEL') in ['B2B','both'] || hasPersonCategory(['customer_contact','supplier_contact','partner_contact'])",
+      "personCategories": ["customer_contact", "supplier_contact", "partner_contact"],
+      "candidateDataFields": ["姓名", "企业", "职位", "工作邮箱", "工作电话", "手机号", "沟通记录"],
+      "questionCodes": [
+        "Q-ACT-001", "Q-ACT-002", "Q-ACT-003", "Q-ACT-004", "Q-ACT-005",
+        "Q-ACT-006", "Q-ACT-007", "Q-ACT-008", "Q-ACT-009", "Q-ACT-010",
+        "Q-B2B-001", "Q-B2B-002", "Q-B2B-003", "Q-B2B-004", "Q-B2B-005",
+        "Q-B2B-006", "Q-B2B-007"
+      ],
+      "baseOfficialMappings": ["A01", "A02", "A03", "A11", "A15", "A16", "A17", "A18", "A19"],
+      "conditionalPipia": ["P01", "P02", "P03", "P04", "P05"],
+      "documentOutputs": ["b2b_contact_notice", "processing_activity_record", "retention_rule"],
+      "triageRules": [
+        { "when": "answer('Q-B2B-001') == ['company_only']", "outcome": "SIMPLE_RECORD", "action": "mark_no_personal_information_candidate", "requiresHumanConfirmation": true },
+        { "when": "hasConfirmedOverseasStorageOrAccess()", "outcome": "PIPIA_REQUIRED", "pipia": ["P04"] },
+        { "when": "hasConfirmedThirdPartyProcessing()", "outcome": "PIPIA_REQUIRED", "pipia": ["P03"] },
+        { "when": "usesAutomatedDecision()", "outcome": "PIPIA_REQUIRED", "pipia": ["P02"] },
+        { "when": "answer('Q-B2B-007').hasSensitive == true", "outcome": "PIPIA_REQUIRED", "pipia": ["P01"] },
+        { "when": "cannotClassifyThirdPartyRole()", "outcome": "EXPERT_REVIEW" }
+      ]
+    },
+    {
+      "code": "SCN-RECRUITMENT",
+      "type": "recruitment",
+      "displayName": "招聘和候选人简历",
+      "description": "招聘、面试、候选人评估和人才库。",
+      "recommendedWhen": "hasPersonCategory(['candidate'])",
+      "personCategories": ["candidate"],
+      "candidateDataFields": ["姓名", "联系方式", "教育经历", "工作经历", "应聘职位", "面试评价"],
+      "questionCodes": [
+        "Q-ACT-001", "Q-ACT-002", "Q-ACT-003", "Q-ACT-004", "Q-ACT-005",
+        "Q-ACT-006", "Q-ACT-007", "Q-ACT-008", "Q-ACT-009", "Q-ACT-010",
+        "Q-HR-001", "Q-HR-002", "Q-HR-003", "Q-HR-004", "Q-HR-005", "Q-HR-006"
+      ],
+      "baseOfficialMappings": ["A01", "A02", "A03", "A15", "A16", "A18", "A19"],
+      "conditionalPipia": ["P01", "P02", "P03", "P04"],
+      "documentOutputs": ["recruitment_notice", "candidate_retention_rule", "processing_activity_record"],
+      "triageRules": [
+        { "when": "hasSensitiveData()", "outcome": "PIPIA_REQUIRED", "pipia": ["P01"] },
+        { "when": "usesAutomatedDecision()", "outcome": "PIPIA_REQUIRED", "pipia": ["P02"], "expertWhen": "decisionMateriallyAffectsHiring()" },
+        { "when": "hasConfirmedThirdPartyProcessing()", "outcome": "PIPIA_REQUIRED", "pipia": ["P03"] },
+        { "when": "hasConfirmedOverseasStorageOrAccess()", "outcome": "PIPIA_REQUIRED", "pipia": ["P04"] },
+        { "when": "talentPoolUseNotDisclosed()", "outcome": "REMEDIATE_THEN_PROCEED" }
+      ]
+    },
+    {
+      "code": "SCN-EMPLOYEE-HR",
+      "type": "employee_management",
+      "displayName": "员工入职和日常人事管理",
+      "description": "劳动关系、人事档案、薪酬福利、考勤、培训和离职。",
+      "recommendedWhen": "hasPersonCategory(['employee','former_employee'])",
+      "personCategories": ["employee", "former_employee"],
+      "candidateDataFields": ["身份信息", "联系方式", "劳动合同", "薪酬福利", "考勤", "培训", "绩效"],
+      "questionCodes": [
+        "Q-ACT-001", "Q-ACT-002", "Q-ACT-003", "Q-ACT-004", "Q-ACT-005",
+        "Q-ACT-006", "Q-ACT-007", "Q-ACT-008", "Q-ACT-009", "Q-ACT-010",
+        "Q-HR-001", "Q-HR-002", "Q-HR-003", "Q-HR-005", "Q-HR-006", "Q-HR-007", "Q-HR-008"
+      ],
+      "baseOfficialMappings": ["A01", "A02", "A03", "A15", "A16", "A18", "A19", "A20", "A21"],
+      "conditionalPipia": ["P01", "P03", "P04", "P05"],
+      "documentOutputs": ["employee_notice", "hr_internal_rule", "offboarding_checklist", "processing_activity_record"],
+      "triageRules": [
+        { "when": "hasSensitiveData()", "outcome": "PIPIA_REQUIRED", "pipia": ["P01"] },
+        { "when": "hasConfirmedThirdPartyProcessing()", "outcome": "PIPIA_REQUIRED", "pipia": ["P03"] },
+        { "when": "hasConfirmedOverseasStorageOrAccess()", "outcome": "PIPIA_REQUIRED", "pipia": ["P04"] },
+        { "when": "usesBiometricAttendance()", "outcome": "EXPERT_REVIEW", "pipia": ["P01", "P05"] },
+        { "when": "answer('Q-HR-008') != 'yes'", "outcome": "REMEDIATE_THEN_PROCEED" }
+      ]
+    },
+    {
+      "code": "SCN-WEB-CONTACT",
+      "type": "web_contact",
+      "displayName": "官网咨询、报名或售后联系",
+      "description": "网站、公众号或小程序中的联系表单和普通咨询。",
+      "recommendedWhen": "hasServiceChannel(['website','mini_program'])",
+      "personCategories": ["customer_contact", "consumer", "other"],
+      "candidateDataFields": ["姓名", "联系方式", "企业", "咨询内容"],
+      "questionCodes": ["Q-ACT-001", "Q-ACT-002", "Q-ACT-003", "Q-ACT-004", "Q-ACT-005", "Q-ACT-006", "Q-ACT-007", "Q-ACT-008", "Q-ACT-009", "Q-ACT-010"],
+      "baseOfficialMappings": ["A01", "A02", "A03", "A15", "A16", "A17"],
+      "conditionalPipia": ["P01", "P03", "P04", "P05"],
+      "documentOutputs": ["website_privacy_notice", "form_notice", "processing_activity_record"],
+      "triageRules": [
+        { "when": "hasUnnecessaryMandatoryFields()", "outcome": "REMEDIATE_THEN_PROCEED" },
+        { "when": "hasConfirmedThirdPartyProcessing()", "outcome": "PIPIA_REQUIRED", "pipia": ["P03"] },
+        { "when": "hasConfirmedOverseasStorageOrAccess()", "outcome": "PIPIA_REQUIRED", "pipia": ["P04"] },
+        { "when": "hasMinorPersons()", "outcome": "EXPERT_REVIEW", "pipia": ["P01", "P05"] }
+      ]
+    },
+    {
+      "code": "SCN-DIRECT-MARKETING",
+      "type": "direct_marketing",
+      "displayName": "邮件、短信或电话营销",
+      "description": "向联系人、会员或潜在客户发送营销信息。",
+      "personCategories": ["customer_contact", "supplier_contact", "consumer", "other"],
+      "candidateDataFields": ["姓名", "联系方式", "企业", "营销偏好", "退订状态"],
+      "questionCodes": ["Q-ACT-001", "Q-ACT-002", "Q-ACT-003", "Q-ACT-004", "Q-ACT-005", "Q-ACT-006", "Q-ACT-007", "Q-ACT-008", "Q-ACT-009", "Q-ACT-010"],
+      "baseOfficialMappings": ["A01", "A02", "A03", "A08", "A11", "A15", "A16"],
+      "conditionalPipia": ["P02", "P03", "P04", "P05"],
+      "documentOutputs": ["marketing_notice", "suppression_list_rule", "processing_activity_record"],
+      "triageRules": [
+        { "when": "marketingWithoutOptOut() || continuesAfterRefusal()", "outcome": "REMEDIATE_THEN_PROCEED" },
+        { "when": "publicSourceUsedBeyondPublicPurpose()", "outcome": "EXPERT_REVIEW" },
+        { "when": "usesAutomatedDecision()", "outcome": "PIPIA_REQUIRED", "pipia": ["P02"] },
+        { "when": "hasConfirmedThirdPartyProcessing()", "outcome": "PIPIA_REQUIRED", "pipia": ["P03"] },
+        { "when": "listSourceUnknown()", "outcome": "EXPERT_REVIEW" }
+      ]
+    },
+    {
+      "code": "SCN-MEMBER-SERVICE",
+      "type": "member_service",
+      "displayName": "普通会员和客户服务",
+      "description": "普通会员注册、积分、订单和售后，不含高风险专业服务。",
+      "personCategories": ["consumer"],
+      "candidateDataFields": ["姓名", "手机号", "账号", "订单", "积分", "售后记录"],
+      "questionCodes": ["Q-ACT-001", "Q-ACT-002", "Q-ACT-003", "Q-ACT-004", "Q-ACT-005", "Q-ACT-006", "Q-ACT-007", "Q-ACT-008", "Q-ACT-009", "Q-ACT-010"],
+      "baseOfficialMappings": ["A01", "A02", "A03", "A15", "A16", "A17"],
+      "conditionalPipia": ["P01", "P02", "P03", "P04", "P05"],
+      "documentOutputs": ["member_privacy_notice", "account_closure_rule", "processing_activity_record"],
+      "triageRules": [
+        { "when": "hasUnnecessaryMandatoryFields()", "outcome": "REMEDIATE_THEN_PROCEED" },
+        { "when": "hasSensitiveData()", "outcome": "PIPIA_REQUIRED", "pipia": ["P01"] },
+        { "when": "usesAutomatedDecision()", "outcome": "PIPIA_REQUIRED", "pipia": ["P02"] },
+        { "when": "hasConfirmedThirdPartyProcessing()", "outcome": "PIPIA_REQUIRED", "pipia": ["P03"] },
+        { "when": "hasMinorPersons()", "outcome": "EXPERT_REVIEW", "pipia": ["P01", "P05"] }
+      ]
+    },
+    {
+      "code": "SCN-VISITOR-ACCESS",
+      "type": "visitor_access",
+      "displayName": "访客登记和普通门禁",
+      "description": "办公场所、门店和工厂的访客登记，不含生物识别。",
+      "personCategories": ["visitor"],
+      "candidateDataFields": ["姓名", "被访人", "到访时间", "联系方式"],
+      "questionCodes": ["Q-ACT-001", "Q-ACT-002", "Q-ACT-003", "Q-ACT-004", "Q-ACT-005", "Q-ACT-006", "Q-ACT-007", "Q-ACT-008", "Q-ACT-009", "Q-ACT-010"],
+      "baseOfficialMappings": ["A01", "A02", "A03", "A15", "A18", "A19"],
+      "conditionalPipia": ["P01", "P03", "P05"],
+      "documentOutputs": ["visitor_notice", "visitor_retention_rule", "processing_activity_record"],
+      "triageRules": [
+        { "when": "collectsFullIdentityCopyWithoutNecessity()", "outcome": "EXPERT_REVIEW", "pipia": ["P01"] },
+        { "when": "hasConfirmedThirdPartyProcessing()", "outcome": "PIPIA_REQUIRED", "pipia": ["P03"] },
+        { "when": "usesBiometricAccess()", "outcome": "EXPERT_REVIEW", "pipia": ["P01", "P05"] },
+        { "when": "retentionRuleMissing()", "outcome": "REMEDIATE_THEN_PROCEED" }
+      ]
+    },
+    {
+      "code": "SCN-CCTV",
+      "type": "cctv",
+      "displayName": "普通视频监控",
+      "description": "为维护公共安全设置的普通视频监控，不含人脸识别和行为画像。",
+      "personCategories": ["visitor", "employee", "consumer"],
+      "candidateDataFields": ["个人图像", "时间", "地点"],
+      "questionCodes": ["Q-ACT-001", "Q-ACT-002", "Q-ACT-003", "Q-ACT-004", "Q-ACT-005", "Q-ACT-006", "Q-ACT-007", "Q-ACT-008", "Q-ACT-009", "Q-ACT-010"],
+      "baseOfficialMappings": ["A10", "A15", "A18", "A19", "A23"],
+      "conditionalPipia": ["P01", "P02", "P03", "P04", "P05"],
+      "documentOutputs": ["cctv_notice_sign", "device_inventory", "recording_access_rule", "processing_activity_record"],
+      "triageRules": [
+        { "when": "noticeSignMissing()", "outcome": "REMEDIATE_THEN_PROCEED" },
+        { "when": "usesFacialRecognition()", "outcome": "EXPERT_REVIEW", "pipia": ["P01", "P05"] },
+        { "when": "usesVideoForMarketingOrPerformance()", "outcome": "EXPERT_REVIEW", "pipia": ["P02", "P05"] },
+        { "when": "hasConfirmedThirdPartyProcessing()", "outcome": "PIPIA_REQUIRED", "pipia": ["P03"] },
+        { "when": "hasConfirmedOverseasStorageOrAccess()", "outcome": "EXPERT_REVIEW", "pipia": ["P04"] }
+      ]
+    }
+  ],
+  "crossCuttingBranches": [
+    { "code": "BR-SENSITIVE", "trigger": "hasSensitiveData() || sensitiveDataUnknown()", "pipia": ["P01"], "questionPhase": "SENSITIVE" },
+    { "code": "BR-MINOR", "trigger": "hasMinorPersons() || minorStatusUnknown()", "pipia": ["P01", "P05"], "defaultOutcome": "EXPERT_REVIEW" },
+    { "code": "BR-THIRD-PARTY", "trigger": "hasThirdParty()", "pipia": ["P03"], "questionPhase": "THIRD_PARTY" },
+    { "code": "BR-CROSS-BORDER", "trigger": "hasConfirmedOverseasStorageOrAccess() || overseasStatusUnknown()", "pipia": ["P04"], "questionPhase": "FOREIGN_INVESTED" },
+    { "code": "BR-AUTOMATED", "trigger": "usesAutomatedDecision() || automatedDecisionUnknown()", "pipia": ["P02"] },
+    { "code": "BR-PUBLIC", "trigger": "publishesPersonalInformation() || processesPublicSourceData()", "pipia": ["P03", "P05"] }
+  ],
+  "globalGuards": [
+    { "when": "personCountMin() >= 100000", "outcome": "OUT_OF_SMALL_SCOPE" },
+    { "when": "personCountUnknownOrCrossesThreshold()", "outcome": "EXPERT_REVIEW" },
+    { "when": "hasBlockingUnknownFacts() || hasDisputedFacts()", "action": "block_formal_assessment" },
+    { "when": "fact('ORG.OWNERSHIP') in ['foreign_invested','foreign_branch','mixed'] && !hasConfirmedOverseasStorageOrAccess()", "action": "do_not_infer_cross_border" }
+  ]
+}

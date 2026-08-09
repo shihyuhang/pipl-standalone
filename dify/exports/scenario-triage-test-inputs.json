@@ -1,0 +1,27 @@
+{
+  "normal_b2b": {
+    "schema_version": "1.0.0",
+    "run_id": "11111111-1111-4111-8111-111111111111",
+    "workflow_code": "scenario_triage",
+    "enterprise_context": "{\"businessModel\":\"B2B\",\"personCount\":2300,\"countVerified\":true,\"sensitiveCategories\":[],\"minorsPossible\":\"no\",\"crossBorder\":\"no\",\"processingRole\":\"independent_processor\"}",
+    "scenario_context": "{\"scenarioCode\":\"SCN-B2B-CONTACT\",\"name\":\"客户和供应商联系人\",\"description\":\"项目交付和客户关系管理\"}",
+    "confirmed_facts": "{\"data_fields\":[\"姓名\",\"公司\",\"职位\",\"工作邮箱\"],\"purpose\":[\"项目交付\"],\"retention\":\"项目结束后2年\",\"rights_channel_exists\":true}"
+  },
+  "foreign_access_unknown": {
+    "schema_version": "1.0.0",
+    "run_id": "22222222-2222-4222-8222-222222222222",
+    "workflow_code": "scenario_triage",
+    "enterprise_context": "{\"businessModel\":\"B2B\",\"ownership\":\"foreign_invested\",\"personCount\":1800,\"countVerified\":true,\"sensitiveCategories\":[],\"minorsPossible\":\"no\",\"crossBorder\":\"unknown\"}",
+    "scenario_context": "{\"scenarioCode\":\"SCN-B2B-CONTACT\",\"name\":\"集团CRM客户联系人管理\",\"description\":\"中国团队和亚太团队使用集团CRM\"}",
+    "confirmed_facts": "{\"crm_storage_location\":\"unknown\",\"overseas_admin_access\":\"unknown\"}"
+  },
+  "sensitive_review": {
+    "schema_version": "1.0.0",
+    "run_id": "33333333-3333-4333-8333-333333333333",
+    "workflow_code": "scenario_triage",
+    "enterprise_context": "{\"businessModel\":\"internal_only\",\"personCount\":260,\"countVerified\":true,\"sensitiveCategories\":[\"health\"],\"minorsPossible\":\"no\",\"crossBorder\":\"no\"}",
+    "scenario_context": "{\"scenarioCode\":\"SCN-HR-EMPLOYEE\",\"name\":\"员工健康管理\",\"description\":\"收集员工体检报告并由HR保存\"}",
+    "confirmed_facts": "{\"data_fields\":[\"体检报告\"],\"access_roles\":[\"HR\"],\"retention\":\"unknown\"}"
+  }
+}
+

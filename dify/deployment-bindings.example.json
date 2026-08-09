@@ -1,0 +1,49 @@
+{
+  "version": "1.0.0",
+  "environment": "development",
+  "dify_base_url": "${DIFY_BASE_URL}",
+  "workflows": {
+    "enterprise_profile_interview": {
+      "workflow_version": "1.0.0",
+      "dify_app_id": "${DIFY_APP_ENTERPRISE_PROFILE}",
+      "provider": "${DIFY_PROVIDER_EXTRACTION}",
+      "model": "${DIFY_MODEL_EXTRACTION}",
+      "api_key_secret_ref": "secret://dify/enterprise-profile"
+    },
+    "small_processor_qualification": {
+      "workflow_version": "1.0.0",
+      "dify_app_id": "${DIFY_APP_QUALIFICATION}",
+      "provider": "${DIFY_PROVIDER_ANALYSIS}",
+      "model": "${DIFY_MODEL_ANALYSIS}",
+      "api_key_secret_ref": "secret://dify/qualification"
+    },
+    "scenario_triage": {
+      "workflow_version": "1.0.0",
+      "dify_app_id": "${DIFY_APP_SCENARIO_TRIAGE}",
+      "provider": "${DIFY_PROVIDER_ANALYSIS}",
+      "model": "${DIFY_MODEL_ANALYSIS}",
+      "api_key_secret_ref": "secret://dify/scenario-triage"
+    },
+    "privacy_notice_generate_review": {
+      "workflow_version": "1.0.0",
+      "dify_app_id": "${DIFY_APP_PRIVACY_NOTICE}",
+      "provider": "${DIFY_PROVIDER_LONG_CONTEXT}",
+      "model": "${DIFY_MODEL_LONG_CONTEXT}",
+      "api_key_secret_ref": "secret://dify/privacy-notice"
+    },
+    "pipia_assessment": {
+      "workflow_version": "1.0.0",
+      "dify_app_id": "${DIFY_APP_PIPIA}",
+      "provider": "${DIFY_PROVIDER_ANALYSIS}",
+      "model": "${DIFY_MODEL_ANALYSIS}",
+      "api_key_secret_ref": "secret://dify/pipia"
+    },
+    "audit_self_check": {
+      "workflow_version": "1.0.0",
+      "dify_app_id": "${DIFY_APP_AUDIT}",
+      "provider": "${DIFY_PROVIDER_ANALYSIS}",
+      "model": "${DIFY_MODEL_ANALYSIS}",
+      "api_key_secret_ref": "secret://dify/audit"
+    }
+  }
+}

@@ -1,0 +1,45 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, ArrowRight, Building2, Check, ShieldCheck, Users } from "lucide-react";
+
+type Form = {
+  legalName: string; orgType: string; businessModel: string; ownership: string; processingRole: string;
+  personCount: string; countVerified: boolean; subjectCategories: string[]; sensitiveCategories: string[];
+  minorsPossible: string; crossBorder: string; privacyContactName: string; privacyContactRole: string; privacyContactChannel: string;
+};
+const initial: Form = { legalName: "", orgType: "company", businessModel: "B2B", ownership: "domestic", processingRole: "independent_processor", personCount: "", countVerified: false, subjectCategories: [], sensitiveCategories: [], minorsPossible: "no", crossBorder: "no", privacyContactName: "", privacyContactRole: "", privacyContactChannel: "" };
+const subjectOptions = [["employee", "在职员工"], ["candidate", "招聘候选人"], ["customer_contact", "客户企业联系人"], ["supplier_contact", "供应商联系人"], ["consumer", "消费者或会员"], ["visitor", "访客"]];
+const sensitiveOptions = [["identity_document", "身份证件"], ["financial_account", "金融账户"], ["health", "健康信息"], ["biometric", "人脸或指纹"], ["precise_location", "精确位置"]];
+
+export default function OnboardingPage() {
+  const [step, setStep] = useState(1); const [form, setForm] = useState<Form>(initial); const [saving, setSaving] = useState(false); const [error, setError] = useState(""); const router = useRouter();
+  useEffect(() => { fetch("/api/enterprise").then(r => r.json()).then(data => { if (data.onboardingCompleted) setForm({ legalName: data.legalName, orgType: data.orgType, businessModel: data.businessModel, ownership: data.ownership, processingRole: data.processingRole, personCount: data.personCount?.toString() || "", countVerified: data.countVerified, subjectCategories: data.subjectCategories, sensitiveCategories: data.sensitiveCategories, minorsPossible: data.minorsPossible, crossBorder: data.crossBorder, privacyContactName: data.privacyContactName, privacyContactRole: data.privacyContactRole, privacyContactChannel: data.privacyContactChannel }); }); }, []);
+  const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm(old => ({ ...old, [key]: value }));
+  const toggle = (key: "subjectCategories" | "sensitiveCategories", value: string) => set(key, form[key].includes(value) ? form[key].filter(v => v !== value) : [...form[key], value]);
+  const canContinue = step === 1 ? form.legalName.trim().length > 1 : step === 2 ? form.personCount !== "" || !form.countVerified : form.privacyContactName && form.privacyContactRole && form.privacyContactChannel;
+  const submit = async () => { setSaving(true); setError(""); const response = await fetch("/api/onboarding", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, personCount: form.personCount === "" ? null : Number(form.personCount) }) }); if (response.ok) { router.push("/"); router.refresh(); } else { const body = await response.json(); setError(body.message || "请检查填写内容。"); setSaving(false); } };
+  return <div className="onboarding-wrap">
+    <header className="onboarding-header"><div className="brand"><div className="brand-mark"><ShieldCheck /></div><div><strong>个保轻舟</strong><span>快速建立企业档案</span></div></div><button className="plain-button" onClick={() => router.push("/")}>保存稍后继续</button></header>
+    <div className="progress-wrap"><div className="progress-meta"><span>第 {step} 步，共 3 步</span><span>约 {4 - step} 分钟</span></div><div className="progress"><span style={{ width: `${step / 3 * 100}%` }} /></div></div>
+    <main className="onboarding-card">
+      {step === 1 && <><div className="step-icon"><Building2 /></div><p className="eyebrow">先了解贵单位</p><h1>贵单位主要做什么业务？</h1><p className="form-lead">这些信息只用于推荐适合的场景和问题，不会因为外资身份直接判断存在境外提供。</p>
+        <label className="field"><span>单位名称</span><input value={form.legalName} onChange={e => set("legalName", e.target.value)} placeholder="请输入营业执照或登记证书上的名称" autoFocus /></label>
+        <div className="field"><span>单位类型</span><div className="choice-grid cols-3">{[["company","公司"],["branch","分支机构"],["individual_business","个体工商户"],["partnership","合伙企业"],["institution","其他组织"]].map(([v,l]) => <button className={form.orgType === v ? "choice selected" : "choice"} key={v} onClick={() => set("orgType", v)}>{form.orgType === v && <Check size={16} />}{l}</button>)}</div></div>
+        <div className="field"><span>主要业务面向谁？</span><div className="choice-grid cols-2">{[["B2B","主要面向企业"],["B2C","主要面向个人"],["both","两者都有"],["internal_only","主要是内部员工管理"]].map(([v,l]) => <button className={form.businessModel === v ? "choice selected" : "choice"} key={v} onClick={() => set("businessModel", v)}>{form.businessModel === v && <Check size={16} />}{l}</button>)}</div></div>
+        <div className="field"><span>是否为外商投资企业或外国企业在华分支？</span><div className="segmented">{[["domestic","不是"],["foreign_invested","外商投资企业"],["foreign_branch","外国企业在华分支"],["unknown","不清楚"]].map(([v,l]) => <button className={form.ownership === v ? "selected" : ""} key={v} onClick={() => set("ownership", v)}>{l}</button>)}</div></div></>}
+      {step === 2 && <><div className="step-icon"><Users /></div><p className="eyebrow">确认处理规模</p><h1>大约涉及多少位自然人？</h1><p className="form-lead">请合并员工、候选人、客户或供应商联系人、消费者和访客。不要填写客户企业数量。</p>
+        <label className="field"><span>目前仍保存或使用信息的人数</span><div className="input-suffix"><input type="number" min="0" value={form.personCount} onChange={e => set("personCount", e.target.value)} placeholder="例如 2300" /><span>人</span></div></label>
+        <label className="check-line"><input type="checkbox" checked={form.countVerified} onChange={e => set("countVerified", e.target.checked)} /><span><strong>已经合并各系统中的自然人，并排除已删除数据</strong><small>不确定也可以继续，系统会生成确认任务。</small></span></label>
+        <div className="field"><span>贵单位通常由谁决定为什么收集和怎样使用这些信息？</span><div className="choice-grid">{[["independent_processor","主要由我们自己决定"],["entrusted_processor","主要按照客户或其他公司的指示处理"],["mixed","两种情况都有"],["unknown","不清楚"]].map(([v,l]) => <button className={form.processingRole === v ? "choice selected" : "choice"} key={v} onClick={() => set("processingRole", v)}>{form.processingRole === v && <Check size={16} />}{l}</button>)}</div></div>
+        <div className="field"><span>目前保存哪些人的信息？</span><div className="tag-choices">{subjectOptions.map(([v,l]) => <button className={form.subjectCategories.includes(v) ? "selected" : ""} key={v} onClick={() => toggle("subjectCategories", v)}>{form.subjectCategories.includes(v) && <Check size={14} />}{l}</button>)}</div></div></>}
+      {step === 3 && <><div className="step-icon"><ShieldCheck /></div><p className="eyebrow">识别需要关注的情况</p><h1>再确认几个关键问题</h1><p className="form-lead">这些情况不会自动得出“不合规”结论，只会决定是否需要更多问题或专业复核。</p>
+        <div className="field"><span>是否处理以下较敏感的信息？</span><div className="tag-choices">{sensitiveOptions.map(([v,l]) => <button className={form.sensitiveCategories.includes(v) ? "selected" : ""} key={v} onClick={() => toggle("sensitiveCategories", v)}>{form.sensitiveCategories.includes(v) && <Check size={14} />}{l}</button>)}</div><small className="field-help">都不涉及时不用选择。</small></div>
+        <div className="two-column-fields"><div className="field"><span>可能包括不满十四周岁的未成年人吗？</span><div className="segmented">{[["no","没有"],["yes","有"],["unknown","不清楚"]].map(([v,l]) => <button className={form.minorsPossible === v ? "selected" : ""} key={v} onClick={() => set("minorsPossible", v)}>{l}</button>)}</div></div><div className="field"><span>会存到境外或被境外人员远程查看吗？</span><div className="segmented">{[["no","不会"],["yes","会"],["unknown","不清楚"]].map(([v,l]) => <button className={form.crossBorder === v ? "selected" : ""} key={v} onClick={() => set("crossBorder", v)}>{l}</button>)}</div></div></div>
+        <div className="contact-box"><strong>谁负责确认和后续办理？</strong><div className="three-inputs"><label><span>姓名</span><input value={form.privacyContactName} onChange={e => set("privacyContactName", e.target.value)} placeholder="负责人姓名" /></label><label><span>岗位</span><input value={form.privacyContactRole} onChange={e => set("privacyContactRole", e.target.value)} placeholder="例如行政经理" /></label><label><span>联系渠道</span><input value={form.privacyContactChannel} onChange={e => set("privacyContactChannel", e.target.value)} placeholder="工作邮箱或电话" /></label></div></div></>}
+      {error && <div className="alert danger">{error}</div>}
+      <footer className="form-actions">{step > 1 ? <button className="button secondary" onClick={() => setStep(step - 1)}><ArrowLeft size={17} /> 上一步</button> : <span />} {step < 3 ? <button className="button primary" disabled={!canContinue} onClick={() => setStep(step + 1)}>保存并继续 <ArrowRight size={17} /></button> : <button className="button primary" disabled={!canContinue || saving} onClick={submit}>{saving ? "正在建立档案…" : "确认并进入工作台"} <ArrowRight size={17} /></button>}</footer>
+    </main>
+  </div>;
+}

@@ -1,0 +1,394 @@
+{
+  "registryCode": "PIPL_SMALL_PROCESSOR_DIFY_WORKFLOWS",
+  "version": "1.0.0",
+  "status": "draft",
+  "contractType": "platform_workflow_manifest_not_dify_dsl",
+  "inputSchema": "../schemas/ai/ai-workflow-request.v1.schema.json",
+  "responseSchema": "../schemas/ai/ai-workflow-response.v1.schema.json",
+  "knowledgeMetadataSchema": "knowledge-metadata-schema.v1.json",
+  "executionPolicy": {
+    "invoker": "ai_gateway_only",
+    "defaultResponseMode": "streaming",
+    "longLivedSessionOwner": "core_platform",
+    "humanInputNode": "disabled_v1",
+    "agentNode": "disabled_v1",
+    "formalWriteTools": "forbidden",
+    "maxFormatRepairAttempts": 1,
+    "modelProviderSecrets": "dify_or_gateway_secret_store"
+  },
+  "knowledgePolicy": {
+    "difyKnowledgeScope": "shared_official_sources_only",
+    "enterpriseDocuments": "preassembled_excerpts_from_core_platform",
+    "chunking": "article_paragraph_or_official_form_item",
+    "requiredMetadata": [
+      "source_code", "source_type", "article_locator", "topic_tags",
+      "official_item_codes", "content_hash", "official_url"
+    ],
+    "retrievalModes": ["none", "preassembled", "dify_knowledge"],
+    "defaultTopK": 10,
+    "maximumTopK": 20,
+    "rerankRecommended": true,
+    "dateFiltering": false
+  },
+  "allowedToolCalls": [
+    {
+      "code": "validate_candidate_output",
+      "mode": "write_nothing",
+      "description": "Validate output JSON against the run-scoped schema and catalog references."
+    },
+    {
+      "code": "retrieve_regulation_chunks",
+      "mode": "read_only",
+      "description": "Retrieve shared official-source chunks using run-scoped source filters."
+    }
+  ],
+  "modelProfiles": [
+    {
+      "code": "cn_json_extraction",
+      "capability": "extraction",
+      "providerTrialOrder": ["qwen", "deepseek", "kimi"],
+      "temperature": 0.0,
+      "maxOutputTokens": 5000,
+      "selectionMetrics": ["schema_valid_rate", "fact_precision", "fact_recall", "cost_per_run"]
+    },
+    {
+      "code": "cn_legal_analysis",
+      "capability": "legal_analysis",
+      "providerTrialOrder": ["deepseek", "qwen", "kimi"],
+      "temperature": 0.1,
+      "maxOutputTokens": 10000,
+      "selectionMetrics": ["false_clearance_rate", "citation_support_rate", "missing_fact_detection", "stability"]
+    },
+    {
+      "code": "cn_long_context_review",
+      "capability": "long_context_review",
+      "providerTrialOrder": ["kimi", "qwen", "deepseek"],
+      "temperature": 0.1,
+      "maxOutputTokens": 12000,
+      "selectionMetrics": ["section_coverage", "citation_locator_accuracy", "schema_valid_rate", "cost_per_run"]
+    },
+    {
+      "code": "cn_document_drafting",
+      "capability": "drafting",
+      "providerTrialOrder": ["qwen", "kimi", "deepseek"],
+      "temperature": 0.25,
+      "maxOutputTokens": 16000,
+      "selectionMetrics": ["fact_alignment", "unsupported_clause_rate", "placeholder_accuracy", "review_edit_distance"]
+    }
+  ],
+  "commonPromptFragments": [
+    "prompts/00-common-system.v1.md"
+  ],
+  "workflows": [
+    {
+      "code": "enterprise_profile_interview",
+      "version": "1.0.0",
+      "displayName": "企业合规画像访谈",
+      "difyPolicy": "conditional",
+      "invokeWhen": [
+        "uploaded_document_requires_semantic_extraction",
+        "free_text_answer_requires_fact_extraction",
+        "confirmed_facts_conflict",
+        "fixed_question_tree_cannot_resolve_missing_fact"
+      ],
+      "skipWhen": [
+        "all_answers_map_deterministically_to_registered_facts",
+        "no_ambiguous_or_free_text_input"
+      ],
+      "taskTypes": ["extract_facts", "propose_questions"],
+      "outputTypes": ["fact_question"],
+      "outputSchemas": {
+        "fact_question": "../schemas/ai/ai-fact-question-output.v1.schema.json"
+      },
+      "promptFragments": [
+        "prompts/00-common-system.v1.md",
+        "prompts/enterprise-profile-interview.v1.md"
+      ],
+      "modelProfile": "cn_json_extraction",
+      "retrievalPolicy": "none_by_default",
+      "limits": {
+        "maxQuestions": 8,
+        "maxBlockingQuestions": 3,
+        "maxCandidateFacts": 100,
+        "timeoutSeconds": 90
+      },
+      "nodes": [
+        { "id": "start", "type": "start", "purpose": "Receive minimized workflow request" },
+        { "id": "precheck", "type": "code", "purpose": "Check task type, allowed output, context counts, and prohibited top-level fields" },
+        { "id": "task_branch", "type": "if_else", "purpose": "Route extract_facts vs propose_questions" },
+        { "id": "extract_llm", "type": "llm", "purpose": "Extract candidate facts using structured output", "modelProfile": "cn_json_extraction" },
+        { "id": "question_llm", "type": "llm", "purpose": "Propose the smallest necessary question batch", "modelProfile": "cn_json_extraction" },
+        { "id": "aggregate", "type": "variable_aggregator", "purpose": "Converge exclusive task branches" },
+        { "id": "validate", "type": "tool", "toolCode": "validate_candidate_output", "purpose": "Validate schema and fact/question catalogs" },
+        { "id": "validation_branch", "type": "if_else", "purpose": "Return validated output or one format repair attempt" },
+        { "id": "format_repair", "type": "llm", "purpose": "Repair structure only without adding facts", "modelProfile": "cn_json_extraction" },
+        { "id": "output", "type": "output", "purpose": "Return candidate result or structured failure" }
+      ],
+      "edges": [
+        ["start", "precheck"], ["precheck", "task_branch"],
+        ["task_branch", "extract_llm"], ["task_branch", "question_llm"],
+        ["extract_llm", "aggregate"], ["question_llm", "aggregate"],
+        ["aggregate", "validate"], ["validate", "validation_branch"],
+        ["validation_branch", "output"], ["validation_branch", "format_repair"],
+        ["format_repair", "validate"]
+      ]
+    },
+    {
+      "code": "small_processor_qualification",
+      "version": "1.0.0",
+      "displayName": "小型处理者资格解释",
+      "difyPolicy": "conditional",
+      "invokeWhen": [
+        "rule_result_unknown_and_dynamic_question_needed",
+        "user_requests_plain_language_explanation",
+        "multiple_rule_results_need_contextual_summary"
+      ],
+      "skipWhen": [
+        "standard_rule_message_is_sufficient",
+        "deterministic_qualification_can_be_presented_without_semantic_analysis"
+      ],
+      "taskTypes": ["propose_questions", "explain_qualification"],
+      "outputTypes": ["fact_question", "assessment"],
+      "outputSchemas": {
+        "fact_question": "../schemas/ai/ai-fact-question-output.v1.schema.json",
+        "assessment": "../schemas/ai/ai-assessment-output.v1.schema.json"
+      },
+      "promptFragments": [
+        "prompts/00-common-system.v1.md",
+        "prompts/small-processor-qualification.v1.md"
+      ],
+      "modelProfile": "cn_legal_analysis",
+      "retrievalPolicy": "preassembled_preferred",
+      "limits": { "maxQuestions": 5, "maxFindings": 20, "timeoutSeconds": 90 },
+      "nodes": [
+        { "id": "start", "type": "start", "purpose": "Receive rules and confirmed facts" },
+        { "id": "precheck", "type": "code", "purpose": "Ensure hard-rule result exists and cannot be overwritten" },
+        { "id": "task_branch", "type": "if_else", "purpose": "Route missing-fact questions vs explanation" },
+        { "id": "question_llm", "type": "llm", "purpose": "Propose qualification questions", "modelProfile": "cn_json_extraction" },
+        { "id": "explain_llm", "type": "llm", "purpose": "Explain rule results without changing them", "modelProfile": "cn_legal_analysis" },
+        { "id": "aggregate", "type": "variable_aggregator", "purpose": "Converge outputs" },
+        { "id": "validate", "type": "tool", "toolCode": "validate_candidate_output", "purpose": "Validate output and rule citations" },
+        { "id": "output", "type": "output", "purpose": "Return candidate questions or explanation draft" }
+      ],
+      "edges": [
+        ["start", "precheck"], ["precheck", "task_branch"],
+        ["task_branch", "question_llm"], ["task_branch", "explain_llm"],
+        ["question_llm", "aggregate"], ["explain_llm", "aggregate"],
+        ["aggregate", "validate"], ["validate", "output"]
+      ]
+    },
+    {
+      "code": "scenario_triage",
+      "version": "1.0.0",
+      "displayName": "业务场景分流",
+      "difyPolicy": "conditional",
+      "invokeWhen": [
+        "free_text_scenario_description_present",
+        "enterprise_document_comparison_required",
+        "rule_results_need_semantic_risk_explanation",
+        "missing_facts_require_contextual_follow_up"
+      ],
+      "skipWhen": [
+        "all_relevant_facts_are_structured",
+        "hard_rules_produce_single_standard_path_and_standard_tasks"
+      ],
+      "taskTypes": ["propose_questions", "triage_scenario"],
+      "outputTypes": ["fact_question", "assessment"],
+      "outputSchemas": {
+        "fact_question": "../schemas/ai/ai-fact-question-output.v1.schema.json",
+        "assessment": "../schemas/ai/ai-assessment-output.v1.schema.json"
+      },
+      "promptFragments": [
+        "prompts/00-common-system.v1.md",
+        "prompts/scenario-triage.v1.md"
+      ],
+      "modelProfile": "cn_legal_analysis",
+      "retrievalPolicy": "dify_knowledge_when_sources_not_preassembled",
+      "limits": { "maxQuestions": 8, "maxFindings": 40, "timeoutSeconds": 120 },
+      "nodes": [
+        { "id": "start", "type": "start", "purpose": "Receive scenario context" },
+        { "id": "precheck", "type": "code", "purpose": "Check scenario code, rules, and output route" },
+        { "id": "retrieval_branch", "type": "if_else", "purpose": "Use preassembled chunks or Dify official knowledge" },
+        { "id": "knowledge", "type": "knowledge_retrieval", "purpose": "Retrieve official-source chunks with metadata filters" },
+        { "id": "context_aggregate", "type": "variable_aggregator", "purpose": "Combine retrieved or preassembled regulation chunks" },
+        { "id": "task_branch", "type": "if_else", "purpose": "Route questions vs assessment" },
+        { "id": "question_llm", "type": "llm", "purpose": "Generate blocking follow-up questions", "modelProfile": "cn_json_extraction" },
+        { "id": "triage_llm", "type": "llm", "purpose": "Generate structured triage draft", "modelProfile": "cn_legal_analysis" },
+        { "id": "result_aggregate", "type": "variable_aggregator", "purpose": "Converge task outputs" },
+        { "id": "validate", "type": "tool", "toolCode": "validate_candidate_output", "purpose": "Validate schema and citation scope" },
+        { "id": "output", "type": "output", "purpose": "Return candidate result" }
+      ],
+      "edges": [
+        ["start", "precheck"], ["precheck", "retrieval_branch"],
+        ["retrieval_branch", "knowledge"], ["retrieval_branch", "context_aggregate"],
+        ["knowledge", "context_aggregate"], ["context_aggregate", "task_branch"],
+        ["task_branch", "question_llm"], ["task_branch", "triage_llm"],
+        ["question_llm", "result_aggregate"], ["triage_llm", "result_aggregate"],
+        ["result_aggregate", "validate"], ["validate", "output"]
+      ]
+    },
+    {
+      "code": "privacy_notice_generate_review",
+      "version": "1.0.0",
+      "displayName": "隐私声明生成与审查",
+      "difyPolicy": "conditional",
+      "invokeWhen": [
+        "user_requests_ai_review",
+        "user_requests_ai_draft",
+        "document_and_fact_consistency_comparison_required"
+      ],
+      "skipWhen": [
+        "user_manually_edits_and_versions_document",
+        "only_template_variable_substitution_is_needed"
+      ],
+      "taskTypes": ["review_document", "draft_document"],
+      "outputTypes": ["assessment", "document"],
+      "outputSchemas": {
+        "assessment": "../schemas/ai/ai-assessment-output.v1.schema.json",
+        "document": "../schemas/ai/ai-document-output.v1.schema.json"
+      },
+      "promptFragments": [
+        "prompts/00-common-system.v1.md",
+        "prompts/privacy-notice-generate-review.v1.md"
+      ],
+      "modelProfileByTask": {
+        "review_document": "cn_long_context_review",
+        "draft_document": "cn_document_drafting"
+      },
+      "retrievalPolicy": "dify_knowledge_when_sources_not_preassembled",
+      "limits": { "maxDocumentExcerpts": 120, "maxFindings": 100, "timeoutSeconds": 240 },
+      "nodes": [
+        { "id": "start", "type": "start", "purpose": "Receive document excerpts and fact snapshot" },
+        { "id": "precheck", "type": "code", "purpose": "Check document scope, snapshot, and task" },
+        { "id": "retrieval_branch", "type": "if_else", "purpose": "Select official-source retrieval mode" },
+        { "id": "knowledge", "type": "knowledge_retrieval", "purpose": "Retrieve notice-related official chunks" },
+        { "id": "context_aggregate", "type": "variable_aggregator", "purpose": "Combine official and enterprise context" },
+        { "id": "task_branch", "type": "if_else", "purpose": "Route review vs drafting" },
+        { "id": "review_llm", "type": "llm", "purpose": "Review completeness and fact consistency", "modelProfile": "cn_long_context_review" },
+        { "id": "draft_llm", "type": "llm", "purpose": "Generate section-based document draft", "modelProfile": "cn_document_drafting" },
+        { "id": "result_aggregate", "type": "variable_aggregator", "purpose": "Converge outputs" },
+        { "id": "validate", "type": "tool", "toolCode": "validate_candidate_output", "purpose": "Validate schema, citations, placeholders, and draft status" },
+        { "id": "output", "type": "output", "purpose": "Return review or document draft" }
+      ],
+      "edges": [
+        ["start", "precheck"], ["precheck", "retrieval_branch"],
+        ["retrieval_branch", "knowledge"], ["retrieval_branch", "context_aggregate"],
+        ["knowledge", "context_aggregate"], ["context_aggregate", "task_branch"],
+        ["task_branch", "review_llm"], ["task_branch", "draft_llm"],
+        ["review_llm", "result_aggregate"], ["draft_llm", "result_aggregate"],
+        ["result_aggregate", "validate"], ["validate", "output"]
+      ]
+    },
+    {
+      "code": "pipia_assessment",
+      "version": "1.0.0",
+      "displayName": "个人信息保护影响评估辅助",
+      "difyPolicy": "conditional",
+      "invokeWhen": [
+        "user_requests_ai_assistance",
+        "narrative_risk_analysis_required",
+        "protection_measure_draft_required"
+      ],
+      "skipWhen": [
+        "user_completes_official_workpaper_manually",
+        "only_official_enum_or_trigger_validation_is_needed"
+      ],
+      "taskTypes": ["propose_questions", "draft_pipia"],
+      "outputTypes": ["fact_question", "assessment"],
+      "outputSchemas": {
+        "fact_question": "../schemas/ai/ai-fact-question-output.v1.schema.json",
+        "assessment": "../schemas/ai/ai-assessment-output.v1.schema.json"
+      },
+      "promptFragments": [
+        "prompts/00-common-system.v1.md",
+        "prompts/pipia-assessment.v1.md"
+      ],
+      "modelProfile": "cn_legal_analysis",
+      "retrievalPolicy": "dify_knowledge_when_sources_not_preassembled",
+      "limits": { "maxApplicableSituations": 5, "maxFindings": 60, "timeoutSeconds": 180 },
+      "nodes": [
+        { "id": "start", "type": "start", "purpose": "Receive applicable official situations and workpaper facts" },
+        { "id": "precheck", "type": "code", "purpose": "Verify P01-P05 triggers are supplied by core rules" },
+        { "id": "retrieval_branch", "type": "if_else", "purpose": "Select official-source retrieval mode" },
+        { "id": "knowledge", "type": "knowledge_retrieval", "purpose": "Retrieve PIPIA-related official chunks" },
+        { "id": "context_aggregate", "type": "variable_aggregator", "purpose": "Combine context" },
+        { "id": "task_branch", "type": "if_else", "purpose": "Route questions vs PIPIA draft" },
+        { "id": "question_llm", "type": "llm", "purpose": "Ask for missing PIPIA facts", "modelProfile": "cn_json_extraction" },
+        { "id": "pipia_llm", "type": "llm", "purpose": "Analyze five situations by three dimensions", "modelProfile": "cn_legal_analysis" },
+        { "id": "result_aggregate", "type": "variable_aggregator", "purpose": "Converge outputs" },
+        { "id": "validate", "type": "tool", "toolCode": "validate_candidate_output", "purpose": "Validate official mappings and draft-only status" },
+        { "id": "output", "type": "output", "purpose": "Return workpaper assistance" }
+      ],
+      "edges": [
+        ["start", "precheck"], ["precheck", "retrieval_branch"],
+        ["retrieval_branch", "knowledge"], ["retrieval_branch", "context_aggregate"],
+        ["knowledge", "context_aggregate"], ["context_aggregate", "task_branch"],
+        ["task_branch", "question_llm"], ["task_branch", "pipia_llm"],
+        ["question_llm", "result_aggregate"], ["pipia_llm", "result_aggregate"],
+        ["result_aggregate", "validate"], ["validate", "output"]
+      ]
+    },
+    {
+      "code": "audit_self_check",
+      "version": "1.0.0",
+      "displayName": "合规审计自查辅助",
+      "difyPolicy": "conditional",
+      "invokeWhen": [
+        "user_requests_ai_assistance",
+        "evidence_and_fact_gap_analysis_required",
+        "narrative_remediation_draft_required"
+      ],
+      "skipWhen": [
+        "user_completes_official_workpaper_manually",
+        "only_official_enum_or_completeness_validation_is_needed"
+      ],
+      "taskTypes": ["propose_questions", "draft_audit_findings"],
+      "outputTypes": ["fact_question", "assessment"],
+      "outputSchemas": {
+        "fact_question": "../schemas/ai/ai-fact-question-output.v1.schema.json",
+        "assessment": "../schemas/ai/ai-assessment-output.v1.schema.json"
+      },
+      "promptFragments": [
+        "prompts/00-common-system.v1.md",
+        "prompts/audit-self-check.v1.md"
+      ],
+      "modelProfile": "cn_legal_analysis",
+      "retrievalPolicy": "dify_knowledge_when_sources_not_preassembled",
+      "batching": {
+        "officialItemsPerBatch": 6,
+        "maximumBatches": 4,
+        "parallelism": 2,
+        "finalAggregation": "deterministic_code"
+      },
+      "limits": { "maxFindingsPerBatch": 30, "timeoutSeconds": 300 },
+      "nodes": [
+        { "id": "start", "type": "start", "purpose": "Receive audit batches, facts, evidence manifest, and rules" },
+        { "id": "precheck", "type": "code", "purpose": "Validate A01-A24 batch coverage and ordering" },
+        { "id": "task_branch", "type": "if_else", "purpose": "Route missing questions vs audit analysis" },
+        { "id": "question_llm", "type": "llm", "purpose": "Ask blocking audit questions", "modelProfile": "cn_json_extraction" },
+        { "id": "batch_iteration", "type": "iteration", "purpose": "Analyze up to six official items per batch with parallelism two" },
+        { "id": "batch_knowledge", "type": "knowledge_retrieval", "purpose": "Retrieve official chunks for current batch" },
+        { "id": "batch_llm", "type": "llm", "purpose": "Generate batch findings and remediation drafts", "modelProfile": "cn_legal_analysis" },
+        { "id": "batch_validate", "type": "tool", "toolCode": "validate_candidate_output", "purpose": "Validate current batch output" },
+        { "id": "deterministic_merge", "type": "code", "purpose": "Merge arrays, deduplicate tasks, preserve A01-A24 order" },
+        { "id": "result_aggregate", "type": "variable_aggregator", "purpose": "Converge question or audit result" },
+        { "id": "output", "type": "output", "purpose": "Return candidate questions or audit workpaper draft" }
+      ],
+      "edges": [
+        ["start", "precheck"], ["precheck", "task_branch"],
+        ["task_branch", "question_llm"], ["task_branch", "batch_iteration"],
+        ["batch_iteration", "batch_knowledge"], ["batch_knowledge", "batch_llm"],
+        ["batch_llm", "batch_validate"], ["batch_validate", "deterministic_merge"],
+        ["question_llm", "result_aggregate"], ["deterministic_merge", "result_aggregate"],
+        ["result_aggregate", "output"]
+      ]
+    }
+  ],
+  "deploymentBindings": {
+    "development": {
+      "description": "Bind workflow code/version to Dify App ID and configured provider/model outside source control.",
+      "secretFields": ["dify_api_key"],
+      "requiredRuntimeFields": ["dify_base_url", "dify_app_id", "configured_provider", "configured_model"]
+    }
+  }
+}

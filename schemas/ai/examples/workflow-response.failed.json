@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "33333333-3333-4333-8333-333333333333",
+  "status": "failed",
+  "output_type": null,
+  "summary": "模型返回内容未通过结构校验，没有生成业务结论。",
+  "confidence": "low",
+  "review_required": true,
+  "output": null,
+  "warnings": [],
+  "failure": {
+    "code": "SCHEMA_VALIDATION_FAILED",
+    "message": "候选事实使用了未注册的事实编码。",
+    "retryable": false
+  },
+  "usage": null
+}

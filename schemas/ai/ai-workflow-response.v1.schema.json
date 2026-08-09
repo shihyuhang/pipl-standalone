@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pipl.local/schemas/ai/ai-workflow-response.v1.schema.json",
+  "title": "AI Workflow Validatable Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "run_id", "status", "summary", "confidence",
+    "review_required", "warnings"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "run_id": { "type": "string", "format": "uuid" },
+    "status": { "enum": ["needs_input", "draft_ready", "needs_review", "failed"] },
+    "output_type": { "type": ["string", "null"], "enum": ["fact_question", "assessment", "document", null] },
+    "summary": { "type": "string", "maxLength": 5000 },
+    "confidence": { "enum": ["low", "medium", "high"] },
+    "review_required": { "type": "boolean" },
+    "output": {
+      "oneOf": [
+        { "$ref": "ai-fact-question-output.v1.schema.json" },
+        { "$ref": "ai-assessment-output.v1.schema.json" },
+        { "$ref": "ai-document-output.v1.schema.json" },
+        { "type": "null" }
+      ]
+    },
+    "warnings": {
+      "type": "array",
+      "maxItems": 50,
+      "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+    },
+    "failure": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": {
+          "enum": [
+            "MODEL_TIMEOUT", "MODEL_RATE_LIMITED", "MODEL_UNAVAILABLE",
+            "CONTEXT_REJECTED", "RETRIEVAL_FAILED", "INVALID_JSON",
+            "SCHEMA_VALIDATION_FAILED", "INSUFFICIENT_CITATIONS", "POLICY_VIOLATION", "UNKNOWN"
+          ]
+        },
+        "message": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "retryable": { "type": "boolean" }
+      }
+    },
+    "usage": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "provider_code": { "enum": ["qwen", "kimi", "deepseek"] },
+        "model_code": { "type": "string", "maxLength": 100 },
+        "input_tokens": { "type": "integer", "minimum": 0 },
+        "output_tokens": { "type": "integer", "minimum": 0 },
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "attempt": { "type": "integer", "minimum": 1, "maximum": 3 }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "failed" } },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["failure"],
+        "properties": {
+          "output_type": { "type": "null" },
+          "output": { "type": "null" },
+          "failure": { "type": "object" },
+          "review_required": { "const": true }
+        }
+      },
+      "else": {
+        "required": ["output_type", "output"],
+        "properties": {
+          "output_type": { "enum": ["fact_question", "assessment", "document"] },
+          "output": { "type": "object" },
+          "failure": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "needs_input" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "output_type": { "const": "fact_question" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "needs_review" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": { "review_required": { "const": true } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "output_type": { "const": "fact_question" } },
+        "required": ["output_type"]
+      },
+      "then": {
+        "properties": {
+          "output": { "$ref": "ai-fact-question-output.v1.schema.json" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "output_type": { "const": "assessment" } },
+        "required": ["output_type"]
+      },
+      "then": {
+        "properties": {
+          "output": { "$ref": "ai-assessment-output.v1.schema.json" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "output_type": { "const": "document" } },
+        "required": ["output_type"]
+      },
+      "then": {
+        "properties": {
+          "output": { "$ref": "ai-document-output.v1.schema.json" }
+        }
+      }
+    }
+  ],
+  "x-business-validation": [
+    "output must validate against the schema selected by output_type, not merely any oneOf branch",
+    "all citation refs must be present in the request context manifest",
+    "candidate fact codes and registered question codes must exist in platform catalogs",
+    "no AI output may create confirmed facts, approvals, signatures, or overall compliance certification"
+  ]
+}

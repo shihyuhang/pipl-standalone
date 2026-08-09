@@ -1,0 +1,114 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "11111111-1111-4111-8111-111111111111",
+  "workspace_token": "wst_5WvJ6woi5Y84X7J9H0kL3mN8pQ2rT1uZ",
+  "workflow": {
+    "code": "scenario_triage",
+    "version": "1.0.0",
+    "prompt_version": "triage.zh.1",
+    "regulation_bundle_version": "cn-small-pi.1",
+    "ruleset_version": "1.0.0",
+    "question_tree_version": "1.0.0"
+  },
+  "task": {
+    "type": "triage_scenario",
+    "locale": "zh-CN",
+    "user_request": "公司准备使用全球 CRM 管理中国客户联系人，请判断还缺少哪些事实。",
+    "allowed_outputs": ["fact_question"],
+    "instructions": ["外资身份本身不得被推断为数据跨境。"]
+  },
+  "context": {
+    "scenario": {
+      "scenario_code": "SCN-B2B-CONTACT",
+      "scenario_type": "b2b_contact",
+      "activity_ref": "activity:crm-contact",
+      "name": "B2B 客户联系人管理",
+      "description": "用于项目沟通、采购和售后。"
+    },
+    "facts": [
+      {
+        "fact_ref": "fact:ownership",
+        "fact_code": "ORG.OWNERSHIP",
+        "subject_ref": "enterprise:current",
+        "value": "foreign_invested",
+        "status": "confirmed",
+        "source_type": "user_answer",
+        "sensitivity_level": "internal",
+        "source_refs": ["answer:Q-ORG-002"]
+      },
+      {
+        "fact_ref": "fact:business-model",
+        "fact_code": "ORG.BUSINESS_MODEL",
+        "subject_ref": "enterprise:current",
+        "value": "B2B",
+        "status": "confirmed",
+        "source_type": "user_answer",
+        "sensitivity_level": "internal",
+        "source_refs": ["answer:Q-ORG-003"]
+      }
+    ],
+    "rule_results": [
+      {
+        "result_ref": "rule-result:xfer-exists",
+        "rule_code": "R-XFER-001",
+        "ruleset_version": "1.0.0",
+        "result": "UNKNOWN",
+        "message": "尚未确认境外存储、传输或远程访问事实。",
+        "fact_refs": ["fact:ownership"],
+        "source_refs": ["PIPL-2021:38"]
+      }
+    ],
+    "document_excerpts": [],
+    "regulation_chunks": [
+      {
+        "chunk_ref": "reg:PIPL-2021:38",
+        "source_code": "PIPL-2021",
+        "article_locator": "第三十八条",
+        "content": "向境外提供个人信息的，应当符合相应条件。",
+        "content_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "source_type": "law",
+        "official_url": "https://www.cac.gov.cn/2021-08/20/c_1631050028355286.htm"
+      }
+    ],
+    "prior_output_refs": []
+  },
+  "retrieval": {
+    "mode": "preassembled",
+    "query": null,
+    "source_codes": ["PIPL-2021"],
+    "topic_filters": ["cross_border"],
+    "top_k": 8,
+    "rerank": true,
+    "minimum_score": 0.35
+  },
+  "data_policy": {
+    "maximum_sensitivity": "confidential",
+    "redactions_applied": ["remove_credentials", "remove_unrelated_fields"],
+    "prohibited_outputs": [
+      "tenant_identifier",
+      "credentials",
+      "hidden_reasoning",
+      "formal_approval",
+      "formal_signature",
+      "overall_compliance_certification",
+      "unregistered_fact_code"
+    ],
+    "allow_raw_persistence": false,
+    "retention_class": "transient"
+  },
+  "output_contract": {
+    "output_type": "fact_question",
+    "schema_id": "https://pipl.local/schemas/ai/ai-fact-question-output.v1.schema.json",
+    "schema_version": "1.0.0",
+    "strict": true
+  },
+  "model_route": {
+    "capability": "legal_analysis",
+    "preferred_providers": ["qwen", "kimi", "deepseek"],
+    "preferred_model_codes": [],
+    "max_attempts": 2,
+    "max_input_tokens": 64000,
+    "max_output_tokens": 4000,
+    "temperature": 0.1
+  }
+}

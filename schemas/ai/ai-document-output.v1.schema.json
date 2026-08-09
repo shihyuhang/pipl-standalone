@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pipl.local/schemas/ai/ai-document-output.v1.schema.json",
+  "title": "AI Document Draft Output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status", "document_type", "language", "title", "scope_refs",
+    "fact_snapshot_ref", "sections", "change_summary", "unresolved_placeholders",
+    "review_required"
+  ],
+  "properties": {
+    "status": { "const": "draft" },
+    "document_type": {
+      "enum": [
+        "privacy_notice", "employee_notice", "recruitment_notice", "b2b_contact_notice",
+        "internal_policy", "consent_text", "incident_plan", "other"
+      ]
+    },
+    "language": { "enum": ["zh-CN", "en"] },
+    "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+    "scope_refs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+    },
+    "fact_snapshot_ref": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/section" }
+    },
+    "change_summary": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/changeItem" }
+    },
+    "unresolved_placeholders": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/placeholder" }
+    },
+    "review_required": { "const": true },
+    "review_reasons": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+    }
+  },
+  "$defs": {
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["section_id", "heading", "content", "fact_refs", "source_refs"],
+      "properties": {
+        "section_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,63}$" },
+        "heading": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "content": { "type": "string", "minLength": 1, "maxLength": 30000 },
+        "fact_refs": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        },
+        "source_refs": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        },
+        "warnings": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        }
+      }
+    },
+    "changeItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_type", "section_id", "description", "reason", "source_refs"],
+      "properties": {
+        "change_type": { "enum": ["added", "modified", "removed", "unchanged"] },
+        "section_id": { "type": "string" },
+        "description": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "source_refs": { "type": "array", "items": { "type": "string" }, "maxItems": 50 }
+      }
+    },
+    "placeholder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["placeholder", "description", "blocking"],
+      "properties": {
+        "placeholder": { "type": "string", "pattern": "^\\{\\{[A-Z0-9_.-]+\\}\\}$" },
+        "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "blocking": { "type": "boolean" },
+        "target_fact_code": {
+          "anyOf": [
+            { "$ref": "../fact-schema.v1.json#/$defs/factCode" },
+            { "type": "null" }
+          ]
+        }
+      }
+    }
+  }
+}
