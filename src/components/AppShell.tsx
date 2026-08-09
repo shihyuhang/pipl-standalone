@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Archive, Building2, ClipboardCheck, FileText, Home, Menu, ShieldCheck, X } from "lucide-react";
+import { Archive, Building2, ClipboardCheck, FileSearch, FileText, Home, Menu, ShieldCheck, X } from "lucide-react";
 import { useState } from "react";
 
 const navigation = [
   { href: "/", label: "首页", icon: Home },
   { href: "/business", label: "我的业务", icon: Building2 },
+  { href: "/assessments", label: "初步检查", icon: FileSearch },
   { href: "/documents", label: "合规材料", icon: FileText },
   { href: "/tasks", label: "办理事项", icon: ClipboardCheck },
   { href: "/records", label: "记录与导出", icon: Archive }

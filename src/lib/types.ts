@@ -62,6 +62,9 @@ export interface TaskItem {
   status: "open" | "in_progress" | "completed";
   createdAt: string;
   completedAt: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  activityId: string | null;
 }
 
 export interface ProcessingActivity {
@@ -97,9 +100,20 @@ export interface BusinessDocument {
   name: string;
   type: string;
   scope: string;
+  description: string;
+  audience: string;
+  activityIds: string[];
+  metadata: DocumentMetadata;
   currentVersionId: string | null;
   currentVersion?: DocumentVersion | null;
   versions?: DocumentVersion[];
+}
+
+export interface DocumentMetadata {
+  materialType: string;
+  modules: string[];
+  generationBasis: string;
+  generatedAt: string;
 }
 
 export interface DocumentVersion {
@@ -118,4 +132,39 @@ export interface AuditEvent {
   action: string;
   summary: string;
   createdAt: string;
+}
+
+export type AssessmentResultStatus = "draft_ready" | "needs_review" | "needs_input";
+export type AssessmentValidity = "current" | "outdated";
+
+export interface AssessmentFinding {
+  id: string;
+  assessmentId: string;
+  title: string;
+  description: string;
+  riskLevel: "L0" | "L1" | "L2" | "L3";
+  status: "open" | "task_created" | "resolved";
+  taskId: string | null;
+  createdAt: string;
+}
+
+export interface AssessmentRun {
+  id: string;
+  activityId: string;
+  activityName: string;
+  sequence: number;
+  source: "dify" | "local_rules";
+  status: AssessmentResultStatus;
+  summary: string;
+  reviewRequired: boolean;
+  warnings: string[];
+  factsSnapshot: ActivityFacts;
+  enterpriseSnapshot: Record<string, unknown>;
+  workflowCode: string;
+  workflowVersion: string;
+  remoteRunId: string | null;
+  validity: AssessmentValidity;
+  invalidatedAt: string | null;
+  createdAt: string;
+  findings: AssessmentFinding[];
 }

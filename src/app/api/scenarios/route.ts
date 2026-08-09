@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createActivity, listActivities, updateActivityFacts } from "@/lib/db";
+import { createActivity, deleteActivity, listActivities, updateActivityFacts } from "@/lib/db";
 import { scenarios } from "@/lib/scenarios";
 
 export const runtime = "nodejs";
@@ -35,4 +35,12 @@ export async function PATCH(request: Request) {
   if (!parsed.success) return NextResponse.json({ message: "业务情况格式无效，请检查后重试。" }, { status: 400 });
   const activity = updateActivityFacts(parsed.data.id, parsed.data.facts);
   return activity ? NextResponse.json(activity) : NextResponse.json({ message: "未找到该业务场景。" }, { status: 404 });
+}
+
+export async function DELETE(request: Request) {
+  const parsed = z.object({ id: z.string().uuid() }).safeParse(await request.json());
+  if (!parsed.success) return NextResponse.json({ message: "请选择有效的业务。" }, { status: 400 });
+  const result = deleteActivity(parsed.data.id);
+  if (result.deleted) return NextResponse.json(result);
+  return NextResponse.json({ message: result.message }, { status: result.message === "未找到该业务。" ? 404 : 409 });
 }

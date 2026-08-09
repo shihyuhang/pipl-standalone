@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ActivityFacts, AuditEvent, BusinessDocument, DashboardData, DocumentVersion, EnterpriseProfile, ProcessingActivity, TaskItem } from "./types";
+import type { ActivityFacts, AssessmentFinding, AssessmentRun, AuditEvent, BusinessDocument, DashboardData, DocumentMetadata, DocumentVersion, EnterpriseProfile, ProcessingActivity, TaskItem } from "./types";
 import { activityFactsCompleteness, emptyActivityFacts, normalizeActivityFacts } from "./activity-facts";
 
 const databasePath = resolve(process.cwd(), process.env.PIPL_DATABASE_PATH || "./data/pipl-mvp.db");
@@ -45,6 +45,20 @@ const schemaSql = `
   CREATE TABLE IF NOT EXISTS audit_event (
     id TEXT PRIMARY KEY, action TEXT NOT NULL, summary TEXT NOT NULL, created_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS assessment_run (
+    id TEXT PRIMARY KEY, activity_id TEXT NOT NULL REFERENCES processing_activity(id), sequence INTEGER NOT NULL,
+    source TEXT NOT NULL, status TEXT NOT NULL, summary TEXT NOT NULL, review_required INTEGER NOT NULL DEFAULT 0,
+    warnings_json TEXT NOT NULL DEFAULT '[]', facts_snapshot_json TEXT NOT NULL DEFAULT '{}',
+    enterprise_snapshot_json TEXT NOT NULL DEFAULT '{}', workflow_code TEXT NOT NULL DEFAULT 'scenario_triage',
+    workflow_version TEXT NOT NULL DEFAULT 'scenario-triage-mvp-v1', remote_run_id TEXT,
+    validity TEXT NOT NULL DEFAULT 'current', invalidated_at TEXT, created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS assessment_activity_idx ON assessment_run(activity_id, created_at DESC);
+  CREATE TABLE IF NOT EXISTS assessment_finding (
+    id TEXT PRIMARY KEY, assessment_id TEXT NOT NULL REFERENCES assessment_run(id), title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '', risk_level TEXT NOT NULL DEFAULT 'L2', status TEXT NOT NULL DEFAULT 'open',
+    task_id TEXT, created_at TEXT NOT NULL
+  );
 `;
 
 const now = () => new Date().toISOString();
@@ -60,10 +74,22 @@ function getDb(): DatabaseSync {
   if (!activityColumns.some(column => column.name === "facts_json")) {
     instance.exec("ALTER TABLE processing_activity ADD COLUMN facts_json TEXT NOT NULL DEFAULT '{}'");
   }
+  ensureColumn(instance, "task", "source_type", "TEXT");
+  ensureColumn(instance, "task", "source_id", "TEXT");
+  ensureColumn(instance, "task", "activity_id", "TEXT");
+  ensureColumn(instance, "business_document", "description", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "business_document", "audience", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "business_document", "activity_ids_json", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(instance, "business_document", "metadata_json", "TEXT NOT NULL DEFAULT '{}'");
   const existing = instance.prepare("SELECT id FROM enterprise LIMIT 1").get();
   if (!existing) instance.prepare("INSERT INTO enterprise (id, updated_at) VALUES (?, ?)").run(randomUUID(), now());
   globalForDb.piplDb = instance;
   return instance;
+}
+
+function ensureColumn(instance: DatabaseSync, table: string, name: string, definition: string) {
+  const columns = instance.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!columns.some(column => column.name === name)) instance.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
 }
 
 export function getEnterprise(): EnterpriseProfile {
@@ -97,10 +123,13 @@ export function updateEnterprise(profile: Omit<EnterpriseProfile, "id" | "update
   return getEnterprise();
 }
 
-export function upsertTask(input: { code: string; title: string; description: string; priority?: string; category?: string }) {
+export function upsertTask(input: { code: string; title: string; description: string; priority?: string; category?: string; sourceType?: string; sourceId?: string; activityId?: string }) {
   const exists = getDb().prepare("SELECT id FROM task WHERE code=? AND status!='completed'").get(input.code);
-  if (!exists) getDb().prepare("INSERT INTO task VALUES (?, ?, ?, ?, ?, ?, 'open', ?, NULL)").run(
-    randomUUID(), input.code, input.title, input.description, input.category || "基础档案", input.priority || "normal", now()
+  if (!exists) getDb().prepare(`INSERT INTO task
+    (id, code, title, description, category, priority, status, created_at, completed_at, source_type, source_id, activity_id)
+    VALUES (?, ?, ?, ?, ?, ?, 'open', ?, NULL, ?, ?, ?)`).run(
+    randomUUID(), input.code, input.title, input.description, input.category || "基础档案", input.priority || "normal", now(),
+    input.sourceType || null, input.sourceId || null, input.activityId || null
   );
 }
 
@@ -108,7 +137,10 @@ export function listTasks(): TaskItem[] {
   return (getDb().prepare("SELECT * FROM task ORDER BY CASE priority WHEN 'high' THEN 0 ELSE 1 END, created_at DESC").all() as Record<string, unknown>[]).map(row => ({
     id: String(row.id), code: String(row.code), title: String(row.title), description: String(row.description),
     category: String(row.category), priority: String(row.priority) as TaskItem["priority"], status: String(row.status) as TaskItem["status"],
-    createdAt: String(row.created_at), completedAt: row.completed_at ? String(row.completed_at) : null
+    createdAt: String(row.created_at), completedAt: row.completed_at ? String(row.completed_at) : null,
+    sourceType: row.source_type ? String(row.source_type) : null,
+    sourceId: row.source_id ? String(row.source_id) : null,
+    activityId: row.activity_id ? String(row.activity_id) : null
   }));
 }
 
@@ -145,25 +177,61 @@ export function getActivity(id: string): ProcessingActivity | null {
   return row ? mapActivity(row) : null;
 }
 
+export function deleteActivity(id: string): { deleted: boolean; message: string } {
+  const activity = getActivity(id);
+  if (!activity) return { deleted: false, message: "未找到该业务。" };
+
+  const assessmentCount = Number((getDb().prepare("SELECT COUNT(*) AS value FROM assessment_run WHERE activity_id=?").get(id) as { value: number }).value);
+  const linkedDocuments = (getDb().prepare("SELECT name, activity_ids_json FROM business_document").all() as Record<string, unknown>[])
+    .filter(row => {
+      try { return (JSON.parse(String(row.activity_ids_json || "[]")) as string[]).includes(id); } catch { return false; }
+    })
+    .map(row => String(row.name));
+
+  if (assessmentCount > 0 || linkedDocuments.length > 0) {
+    const reasons = [
+      assessmentCount > 0 ? `${assessmentCount} 次初步检查记录` : "",
+      linkedDocuments.length > 0 ? `${linkedDocuments.length} 份合规材料（${linkedDocuments.join("、")}）` : ""
+    ].filter(Boolean).join("和");
+    return { deleted: false, message: `这项业务已关联${reasons}，为保留合规记录，暂不能直接删除。` };
+  }
+
+  getDb().exec("BEGIN");
+  try {
+    getDb().prepare("DELETE FROM task WHERE activity_id=? OR code=?").run(id, `COMPLETE-${id}`);
+    getDb().prepare("DELETE FROM processing_activity WHERE id=?").run(id);
+    getDb().exec("COMMIT");
+  } catch (error) { getDb().exec("ROLLBACK"); throw error; }
+  addAuditEvent("activity.deleted", `删除未被引用的业务场景：${activity.name}`);
+  return { deleted: true, message: "业务已删除。" };
+}
+
 export function updateActivityFacts(id: string, input: ActivityFacts): ProcessingActivity | null {
   const current = getActivity(id);
   if (!current) return null;
   const facts = normalizeActivityFacts(input);
   const completeness = activityFactsCompleteness(facts);
-  facts.confirmedAt = completeness === 1 ? now() : null;
+  const withoutConfirmation = (value: ActivityFacts) => ({ ...value, confirmedAt: null });
+  const changed = JSON.stringify(withoutConfirmation(current.facts)) !== JSON.stringify(withoutConfirmation(facts));
+  facts.confirmedAt = completeness === 1 ? (changed ? now() : current.facts.confirmedAt || now()) : null;
   getDb().prepare("UPDATE processing_activity SET facts_json=?, completeness=? WHERE id=?")
     .run(JSON.stringify(facts), completeness, id);
+  if (changed) getDb().prepare("UPDATE assessment_run SET validity='outdated', invalidated_at=? WHERE activity_id=? AND validity='current'")
+    .run(now(), id);
   if (completeness === 1) {
     getDb().prepare("UPDATE task SET status='completed', completed_at=? WHERE code=? AND status!='completed'")
       .run(now(), `COMPLETE-${id}`);
   }
-  addAuditEvent("activity.facts.updated", completeness === 1 ? `完成业务场景事实确认：${current.name}` : `保存业务场景进度：${current.name}`);
+  if (changed) addAuditEvent("activity.facts.updated", completeness === 1 ? `完成业务场景事实确认：${current.name}` : `保存业务场景进度：${current.name}`);
   return getActivity(id);
 }
 
-export function createDocument(input: { name: string; type: string; scope: string; content: string; changeSummary?: string }): BusinessDocument {
+export function createDocument(input: { name: string; type: string; scope: string; description?: string; audience?: string; activityIds?: string[]; metadata?: DocumentMetadata; content: string; changeSummary?: string }): BusinessDocument {
   const documentId = randomUUID(); const versionId = randomUUID();
-  getDb().prepare("INSERT INTO business_document VALUES (?, ?, ?, ?, NULL)").run(documentId, input.name, input.type, input.scope);
+  getDb().prepare(`INSERT INTO business_document
+    (id, name, type, scope, current_version_id, description, audience, activity_ids_json, metadata_json)
+    VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)`)
+    .run(documentId, input.name, input.type, input.scope, input.description || "", input.audience || "", JSON.stringify(input.activityIds || []), JSON.stringify(input.metadata || {}));
   getDb().prepare("INSERT INTO document_version VALUES (?, ?, 'v0.1', 'draft', ?, ?, ?, NULL)").run(versionId, documentId, input.content, input.changeSummary || "建立首个草稿", now());
   addAuditEvent("document.created", `创建文档草稿：${input.name}`);
   return getDocument(documentId)!;
@@ -199,10 +267,102 @@ export function getDocument(id: string): BusinessDocument | null {
   const row = getDb().prepare("SELECT * FROM business_document WHERE id=?").get(id) as Record<string, unknown> | undefined;
   if (!row) return null;
   const versions = (getDb().prepare("SELECT * FROM document_version WHERE document_id=? ORDER BY created_at DESC").all(id) as Record<string, unknown>[]).map(mapVersion);
-  return { id: String(row.id), name: String(row.name), type: String(row.type), scope: String(row.scope), currentVersionId: row.current_version_id ? String(row.current_version_id) : null, currentVersion: versions.find(v => v.id === row.current_version_id) || null, versions };
+  let activityIds: string[] = []; let metadata = {} as DocumentMetadata;
+  try { activityIds = JSON.parse(String(row.activity_ids_json || "[]")); } catch { activityIds = []; }
+  try { metadata = JSON.parse(String(row.metadata_json || "{}")); } catch { metadata = {} as DocumentMetadata; }
+  return {
+    id: String(row.id), name: String(row.name), type: String(row.type), scope: String(row.scope),
+    description: String(row.description || ""), audience: String(row.audience || ""), activityIds, metadata,
+    currentVersionId: row.current_version_id ? String(row.current_version_id) : null,
+    currentVersion: versions.find(v => v.id === row.current_version_id) || null, versions
+  };
 }
 export function listDocuments(): BusinessDocument[] {
   return (getDb().prepare("SELECT id FROM business_document ORDER BY name").all() as { id: string }[]).map(row => getDocument(row.id)!).filter(Boolean);
+}
+
+type AssessmentInput = {
+  source: AssessmentRun["source"];
+  status: AssessmentRun["status"];
+  summary: string;
+  reviewRequired: boolean;
+  warnings: string[];
+  findings: Array<{ title: string; description: string; riskLevel: AssessmentFinding["riskLevel"] }>;
+  remoteRunId?: string | null;
+};
+
+export function createAssessmentRun(activity: ProcessingActivity, enterpriseSnapshot: Record<string, unknown>, result: AssessmentInput): AssessmentRun {
+  const db = getDb(); const id = randomUUID(); const createdAt = now();
+  const sequenceRow = db.prepare("SELECT COALESCE(MAX(sequence), 0) AS value FROM assessment_run WHERE activity_id=?").get(activity.id) as { value: number };
+  const sequence = Number(sequenceRow.value) + 1;
+  db.exec("BEGIN");
+  try {
+    db.prepare("UPDATE assessment_run SET validity='outdated', invalidated_at=? WHERE activity_id=? AND validity='current'").run(createdAt, activity.id);
+    db.prepare(`INSERT INTO assessment_run
+      (id, activity_id, sequence, source, status, summary, review_required, warnings_json, facts_snapshot_json,
+       enterprise_snapshot_json, workflow_code, workflow_version, remote_run_id, validity, invalidated_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scenario_triage', 'scenario-triage-mvp-v1', ?, 'current', NULL, ?)`)
+      .run(id, activity.id, sequence, result.source, result.status, result.summary, result.reviewRequired ? 1 : 0,
+        JSON.stringify(result.warnings), JSON.stringify(activity.facts), JSON.stringify(enterpriseSnapshot), result.remoteRunId || null, createdAt);
+    const statement = db.prepare(`INSERT INTO assessment_finding
+      (id, assessment_id, title, description, risk_level, status, task_id, created_at)
+      VALUES (?, ?, ?, ?, ?, 'open', NULL, ?)`);
+    for (const finding of result.findings) statement.run(randomUUID(), id, finding.title, finding.description, finding.riskLevel, createdAt);
+    db.exec("COMMIT");
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
+  addAuditEvent("assessment.created", `完成“${activity.name}”第 ${sequence} 次初步检查`);
+  return getAssessment(id)!;
+}
+
+function mapFinding(row: Record<string, unknown>): AssessmentFinding {
+  return {
+    id: String(row.id), assessmentId: String(row.assessment_id), title: String(row.title), description: String(row.description),
+    riskLevel: String(row.risk_level) as AssessmentFinding["riskLevel"], status: String(row.status) as AssessmentFinding["status"],
+    taskId: row.task_id ? String(row.task_id) : null, createdAt: String(row.created_at)
+  };
+}
+
+function mapAssessment(row: Record<string, unknown>): AssessmentRun {
+  const parseObject = (value: unknown) => { try { return JSON.parse(String(value || "{}")); } catch { return {}; } };
+  const parseList = (value: unknown) => { try { return JSON.parse(String(value || "[]")); } catch { return []; } };
+  const findings = (getDb().prepare("SELECT * FROM assessment_finding WHERE assessment_id=? ORDER BY created_at, id").all(String(row.id)) as Record<string, unknown>[]).map(mapFinding);
+  return {
+    id: String(row.id), activityId: String(row.activity_id), activityName: String(row.activity_name || "业务场景"), sequence: Number(row.sequence),
+    source: String(row.source) as AssessmentRun["source"], status: String(row.status) as AssessmentRun["status"], summary: String(row.summary),
+    reviewRequired: Boolean(row.review_required), warnings: parseList(row.warnings_json), factsSnapshot: normalizeActivityFacts(parseObject(row.facts_snapshot_json)),
+    enterpriseSnapshot: parseObject(row.enterprise_snapshot_json), workflowCode: String(row.workflow_code), workflowVersion: String(row.workflow_version),
+    remoteRunId: row.remote_run_id ? String(row.remote_run_id) : null, validity: String(row.validity) as AssessmentRun["validity"],
+    invalidatedAt: row.invalidated_at ? String(row.invalidated_at) : null, createdAt: String(row.created_at), findings
+  };
+}
+
+export function getAssessment(id: string): AssessmentRun | null {
+  const row = getDb().prepare(`SELECT ar.*, pa.name AS activity_name FROM assessment_run ar
+    JOIN processing_activity pa ON pa.id=ar.activity_id WHERE ar.id=?`).get(id) as Record<string, unknown> | undefined;
+  return row ? mapAssessment(row) : null;
+}
+
+export function listAssessments(activityId?: string): AssessmentRun[] {
+  const rows = (activityId
+    ? getDb().prepare(`SELECT ar.*, pa.name AS activity_name FROM assessment_run ar JOIN processing_activity pa ON pa.id=ar.activity_id WHERE ar.activity_id=? ORDER BY ar.created_at DESC`).all(activityId)
+    : getDb().prepare(`SELECT ar.*, pa.name AS activity_name FROM assessment_run ar JOIN processing_activity pa ON pa.id=ar.activity_id ORDER BY ar.created_at DESC`).all()) as Record<string, unknown>[];
+  return rows.map(mapAssessment);
+}
+
+export function createTaskFromFinding(assessmentId: string, findingId: string): TaskItem | null {
+  const finding = getDb().prepare("SELECT * FROM assessment_finding WHERE id=? AND assessment_id=?").get(findingId, assessmentId) as Record<string, unknown> | undefined;
+  if (!finding) return null;
+  if (finding.task_id) return listTasks().find(item => item.id === finding.task_id) || null;
+  const assessment = getAssessment(assessmentId);
+  if (!assessment) return null;
+  const taskId = randomUUID();
+  getDb().prepare(`INSERT INTO task
+    (id, code, title, description, category, priority, status, created_at, completed_at, source_type, source_id, activity_id)
+    VALUES (?, ?, ?, ?, '初步检查', ?, 'open', ?, NULL, 'assessment_finding', ?, ?)`)
+    .run(taskId, `FINDING-${findingId}`, String(finding.title), String(finding.description), String(finding.risk_level) === "L3" ? "high" : "normal", now(), findingId, assessment.activityId);
+  getDb().prepare("UPDATE assessment_finding SET status='task_created', task_id=? WHERE id=?").run(taskId, findingId);
+  addAuditEvent("assessment.finding.task_created", `将检查发现转为待办：${String(finding.title)}`);
+  return listTasks().find(item => item.id === taskId) || null;
 }
 
 export function addAuditEvent(action: string, summary: string) {

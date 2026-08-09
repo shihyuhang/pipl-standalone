@@ -13,6 +13,7 @@ export interface TriageResult {
   reviewRequired: boolean;
   findings: Array<{ title: string; description: string; riskLevel: "L0" | "L1" | "L2" | "L3" }>;
   warnings: string[];
+  remoteRunId?: string | null;
 }
 
 function humanizeFindingText(input: unknown): string {
@@ -79,7 +80,7 @@ export async function runScenarioTriage(context: TriageContext): Promise<TriageR
       signal: AbortSignal.timeout(120_000)
     });
     if (!response.ok) throw new Error(`Dify returned ${response.status}`);
-    const payload = await response.json() as { data?: { outputs?: Record<string, unknown> } };
+    const payload = await response.json() as { workflow_run_id?: string; data?: { id?: string; outputs?: Record<string, unknown> } };
     const raw = payload.data?.outputs?.result ?? payload.data?.outputs?.output ?? payload.data?.outputs;
     const output = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (!output || typeof output !== "object") throw new Error("Dify output is empty");
@@ -93,7 +94,8 @@ export async function runScenarioTriage(context: TriageContext): Promise<TriageR
         const finding = item as Record<string, unknown>;
         return { title: humanizeFindingText(finding.title || "待确认事项"), description: humanizeFindingText(finding.description || ""), riskLevel: (["L0", "L1", "L2", "L3"].includes(String(finding.risk_level)) ? finding.risk_level : "L2") as "L0" | "L1" | "L2" | "L3" };
       }) : [],
-      warnings: Array.isArray(value.warnings) ? value.warnings.map(String) : []
+      warnings: Array.isArray(value.warnings) ? value.warnings.map(String) : [],
+      remoteRunId: payload.workflow_run_id || payload.data?.id || null
     };
   } catch (error) {
     const fallback = localFallback(context, "Dify调用失败，本次只完成基础规则检查。");

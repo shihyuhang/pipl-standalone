@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getActivity, getEnterprise } from "@/lib/db";
+import { createAssessmentRun, getActivity, getEnterprise } from "@/lib/db";
 import { runScenarioTriage } from "@/lib/dify";
 import { isActivityReadyForTriage } from "@/lib/activity-facts";
 
@@ -28,9 +28,10 @@ export async function POST(request: Request) {
     crossBorder: enterprise.crossBorder,
     qualificationStatus: enterprise.qualificationStatus
   };
-  return NextResponse.json(await runScenarioTriage({
+  const result = await runScenarioTriage({
     enterprise: minimizedEnterpriseContext,
     scenario: activity as unknown as Record<string, unknown>,
     confirmedFacts: activity.facts as unknown as Record<string, unknown>
-  }));
+  });
+  return NextResponse.json(createAssessmentRun(activity, minimizedEnterpriseContext, result), { status: 201 });
 }

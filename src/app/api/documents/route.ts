@@ -1,13 +1,47 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createDocument, getEnterprise, listDocuments } from "@/lib/db";
+import { createDocument, getEnterprise, listActivities, listDocuments } from "@/lib/db";
+import { generateMaterialDraft, materialCatalog } from "@/lib/materials";
 
 export const runtime = "nodejs";
+
 export async function GET() { return NextResponse.json(listDocuments()); }
+
 export async function POST(request: Request) {
-  const parsed = z.object({ name: z.string().min(2), type: z.string().default("privacy_notice"), scope: z.string().min(1), content: z.string().optional() }).safeParse(await request.json());
-  if (!parsed.success) return NextResponse.json({ message: "请填写文档名称和适用范围。" }, { status: 400 });
+  const parsed = z.object({
+    name: z.string().min(2),
+    type: z.string().min(2),
+    scope: z.string().min(1),
+    audience: z.string().min(1),
+    description: z.string().optional().default(""),
+    activityIds: z.array(z.string().uuid()).min(1),
+    modules: z.array(z.string()).optional(),
+    content: z.string().optional()
+  }).safeParse(await request.json());
+  if (!parsed.success) return NextResponse.json({ message: "请完成材料类型、适用对象和关联业务的选择。" }, { status: 400 });
+
   const enterprise = getEnterprise();
-  const content = parsed.data.content || `${enterprise.legalName || "本单位"}重视个人信息保护。\n\n一、我们处理的信息\n我们仅在具体业务所需范围内处理员工、客户或供应商联系人等相关个人的信息。\n\n二、处理目的\n用于业务联系、合同履行、内部管理及依法履行相关义务。\n\n三、保存与保护\n我们按照实现处理目的所需的最短时间保存，并采取与风险相适应的保护措施。\n\n四、您的权利\n如需查询、更正、删除个人信息或提出其他请求，请通过以下方式联系我们：${enterprise.privacyContactChannel || "待补充"}。\n\n本文件为系统辅助生成的草稿，发布前应由负责人结合具体业务事实确认。`;
-  return NextResponse.json(createDocument({ ...parsed.data, content }), { status: 201 });
+  const activities = listActivities().filter(item => parsed.data.activityIds.includes(item.id));
+  if (activities.length !== parsed.data.activityIds.length) return NextResponse.json({ message: "关联的业务中有内容已不存在，请重新选择。" }, { status: 409 });
+  const definition = materialCatalog.find(item => item.code === parsed.data.type);
+  if (!definition) return NextResponse.json({ message: "暂不支持该材料类型。" }, { status: 400 });
+
+  const content = parsed.data.content || generateMaterialDraft({
+    ...parsed.data, enterprise, activities
+  });
+  return NextResponse.json(createDocument({
+    name: parsed.data.name,
+    type: parsed.data.type,
+    scope: parsed.data.scope,
+    audience: parsed.data.audience,
+    description: parsed.data.description,
+    activityIds: parsed.data.activityIds,
+    content,
+    metadata: {
+      materialType: parsed.data.type,
+      modules: parsed.data.modules?.length ? parsed.data.modules : definition.defaultModules,
+      generationBasis: `企业档案 + ${activities.length} 项已确认业务`,
+      generatedAt: new Date().toISOString()
+    }
+  }), { status: 201 });
 }
