@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowRight, Building2, CheckCircle2, ClipboardList, FileText, Plus, RefreshCw, ShieldAlert } from "lucide-react";
+import { AlertTriangle, ArrowRight, Building2, CheckCircle2, ClipboardList, FileText, Plus, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { DashboardData } from "@/lib/types";
 
@@ -28,6 +28,7 @@ export default function DashboardPage() {
     <div className="metric-grid">
       <Link href="/business" className="metric-card"><Building2 /><div><strong>{data.counts.activities}</strong><span>已记录业务</span></div><ArrowRight className="metric-arrow" /></Link>
       <Link href="/documents" className="metric-card"><FileText /><div><strong>{data.counts.documents}</strong><span>合规材料</span></div><ArrowRight className="metric-arrow" /></Link>
+      <Link href="/compliance-check" className="metric-card"><ShieldCheck /><div><strong>{data.counts.signedAudits}/{data.counts.audits}</strong><span>已归档 / 全面检查</span></div><ArrowRight className="metric-arrow" /></Link>
       <Link href="/tasks" className="metric-card"><ClipboardList /><div><strong>{data.counts.openTasks}</strong><span>待办理事项</span></div><ArrowRight className="metric-arrow" /></Link>
     </div>
 
@@ -38,6 +39,7 @@ export default function DashboardPage() {
       <section className="card quick-card"><div className="card-header"><div><p className="eyebrow">常用操作</p><h2>快速开始</h2></div></div>
         <Link href="/business"><div className="quick-icon blue"><Plus /></div><div><strong>记录一项业务</strong><span>说明怎样使用个人信息</span></div><ArrowRight /></Link>
         <Link href="/documents"><div className="quick-icon green"><FileText /></div><div><strong>建立隐私声明</strong><span>生成草稿并管理版本</span></div><ArrowRight /></Link>
+        <Link href="/compliance-check"><div className="quick-icon green"><ShieldCheck /></div><div><strong>继续合规检查</strong><span>系统根据当前业务告诉您下一步</span></div><ArrowRight /></Link>
         <Link href="/records"><div className="quick-icon amber"><ClipboardList /></div><div><strong>查看合规记录</strong><span>了解已经完成的工作</span></div><ArrowRight /></Link>
       </section>
     </div>

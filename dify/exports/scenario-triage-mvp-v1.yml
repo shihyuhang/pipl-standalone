@@ -403,19 +403,24 @@ workflow:
               return str(value or '').strip()[:limit]
 
           def extract_json(raw):
-              text = (raw or '').strip()
-              if text.startswith('```'):
-                  lines = text.splitlines()
-                  if lines:
-                      lines = lines[1:]
-                  if lines and lines[-1].strip().startswith('```'):
-                      lines = lines[:-1]
-                  text = '\n'.join(lines).strip()
+              text = str(raw or '').lstrip('\ufeff').strip()
               start = text.find('{')
-              end = text.rfind('}')
-              if start >= 0 and end > start:
-                  text = text[start:end + 1]
-              return json.loads(text)
+              if start < 0:
+                  raise ValueError('模型输出中没有 JSON 对象')
+
+              # raw_decode 只读取第一个完整 JSON 值，因此可以兼容代码围栏、
+              # JSON 前后的简短说明，又不会被字符串内部的花括号干扰。
+              value, consumed = json.JSONDecoder().raw_decode(text[start:])
+              if not isinstance(value, dict):
+                  raise ValueError('模型输出不是 JSON 对象')
+
+              suffix = text[start + consumed:].strip()
+              if suffix.startswith('```'):
+                  suffix = suffix[3:].strip()
+              # 第二个 JSON 值意味着模型给出了互相竞争的结论，不能静默选取。
+              if suffix.startswith('{') or suffix.startswith('['):
+                  raise ValueError('模型输出包含多个 JSON 结果')
+              return value
 
           def fallback(message):
               return {

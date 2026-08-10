@@ -23,7 +23,7 @@ export function assessQualification(input: QualificationInput): QualificationRes
     tasks.push({
       code: "VERIFY-PERSON-COUNT",
       title: "确认个人信息涉及人数",
-      description: "合并员工、候选人、联系人和消费者，并排除已删除数据。",
+      description: "汇总当前仍保存或使用的员工、候选人、业务联系人和消费者等自然人，去除重复人员，并排除已经删除的数据。",
       priority: "high"
     });
   }
