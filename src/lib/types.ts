@@ -45,7 +45,7 @@ export interface QualificationResult {
 
 export interface DashboardData {
   enterprise: EnterpriseProfile;
-  counts: { activities: number; openTasks: number; documents: number; completedTasks: number };
+  counts: { activities: number; openTasks: number; documents: number; completedTasks: number; audits: number; signedAudits: number; impactAssessments: number };
   tasks: TaskItem[];
   activities: ProcessingActivity[];
   documents: BusinessDocument[];
@@ -65,6 +65,12 @@ export interface TaskItem {
   sourceType: string | null;
   sourceId: string | null;
   activityId: string | null;
+  handlingNote: string;
+  evidenceNote: string;
+  responsibleName: string;
+  startedAt: string | null;
+  completionMode: "manual" | "automatic";
+  completionBasis: string;
 }
 
 export interface ProcessingActivity {
@@ -167,4 +173,90 @@ export interface AssessmentRun {
   invalidatedAt: string | null;
   createdAt: string;
   findings: AssessmentFinding[];
+}
+
+export type AuditConclusion = "unanswered" | "compliant" | "non_compliant" | "not_applicable";
+export type FormStatus = "draft" | "collecting" | "remediation" | "ready_to_sign" | "signed" | "archived";
+
+export interface AuditItemDefinition {
+  code: string;
+  number: number;
+  groupCode: string;
+  title: string;
+  question: string;
+  help: string;
+  evidenceExamples: string[];
+}
+
+export interface AuditSignal {
+  tone: "positive" | "warning" | "neutral";
+  text: string;
+}
+
+export interface AuditResponse {
+  id: string;
+  instanceId: string;
+  itemCode: string;
+  conclusion: AuditConclusion;
+  explanation: string;
+  evidenceNote: string;
+  taskId: string | null;
+  updatedAt: string;
+  definition: AuditItemDefinition;
+  signals: AuditSignal[];
+}
+
+export interface AuditInstance {
+  id: string;
+  title: string;
+  status: FormStatus;
+  templateVersion: string;
+  progress: number;
+  answeredCount: number;
+  nonCompliantCount: number;
+  responsibleName: string;
+  responsibleRole: string;
+  startedAt: string;
+  updatedAt: string;
+  signedAt: string | null;
+  signedContentHash: string | null;
+  contextSnapshot?: Record<string, unknown>;
+  responses?: AuditResponse[];
+  validationErrors?: string[];
+}
+
+export type PipiaCategoryCode = "P01" | "P02" | "P03" | "P04" | "P05";
+export type YesNoNA = "unanswered" | "yes" | "no" | "not_applicable";
+export type ImpactAnswer = "unanswered" | "has_impact" | "no_impact" | "not_applicable";
+
+export interface PipiaResponse {
+  id: string;
+  instanceId: string;
+  categoryCode: PipiaCategoryCode;
+  categoryName: string;
+  legality: YesNoNA;
+  impact: ImpactAnswer;
+  measureAdequacy: YesNoNA;
+  notes: string;
+  evidenceNote: string;
+  taskId: string | null;
+  updatedAt: string;
+}
+
+export interface PipiaInstance {
+  id: string;
+  activityId: string;
+  activityName: string;
+  status: FormStatus;
+  categoryCodes: PipiaCategoryCode[];
+  progress: number;
+  responsibleName: string;
+  responsibleRole: string;
+  createdAt: string;
+  updatedAt: string;
+  signedAt: string | null;
+  signedContentHash: string | null;
+  contextSnapshot?: { enterprise: EnterpriseProfile; activity: ProcessingActivity } | null;
+  responses?: PipiaResponse[];
+  validationErrors?: string[];
 }

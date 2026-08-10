@@ -16,6 +16,55 @@ export interface TriageResult {
   remoteRunId?: string | null;
 }
 
+/**
+ * Dify 的模型节点偶尔会在 JSON 前后附加代码围栏或一句说明。
+ * 这里只接受第一个完整的 JSON 对象；如果后面还有第二个 JSON 值，
+ * 则视为歧义输出并拒绝，避免平台静默采用错误结论。
+ */
+export function parseDifyJsonObject(input: string): Record<string, unknown> {
+  const text = String(input || "").replace(/^\uFEFF/, "").trim();
+  const start = text.indexOf("{");
+  if (start < 0) throw new Error("AI输出中没有可识别的结构化结果");
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let end = -1;
+
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') inString = true;
+    else if (character === "{") depth += 1;
+    else if (character === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        end = index + 1;
+        break;
+      }
+      if (depth < 0) break;
+    }
+  }
+
+  if (end < 0 || inString || depth !== 0) throw new Error("AI输出的结构化结果不完整");
+
+  const suffix = text.slice(end).replace(/^\s*```(?:json)?\s*/i, "").trim();
+  if (suffix.startsWith("{") || suffix.startsWith("[")) {
+    throw new Error("AI输出包含多个相互竞争的结果");
+  }
+
+  const value = JSON.parse(text.slice(start, end)) as unknown;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("AI输出不是有效的结构化结果");
+  }
+  return value as Record<string, unknown>;
+}
+
 function humanizeFindingText(input: unknown): string {
   let text = String(input || "");
   text = text
@@ -58,8 +107,8 @@ export async function runScenarioTriage(context: TriageContext): Promise<TriageR
   const enabled = process.env.DIFY_ENABLE === "true";
   const apiKey = process.env.DIFY_API_KEY_SCENARIO_TRIAGE;
   const baseUrl = (process.env.DIFY_API_BASE_URL || "https://dify.legalkit.xyz/v1").replace(/\/$/, "");
-  if (!enabled) return localFallback(context, "Dify AI分流尚未启用，本次只完成基础规则检查，不能视为AI分流结论。");
-  if (!apiKey) return localFallback(context, "尚未配置Dify工作流API Key，本次只完成基础规则检查。");
+  if (!enabled) return localFallback(context, "AI辅助分析尚未启用，本次只完成基础规则检查，不能视为AI分析结论。");
+  if (!apiKey) return localFallback(context, "AI辅助分析服务尚未配置，本次只完成基础规则检查。");
 
   try {
     const response = await fetch(`${baseUrl}/workflows/run`, {
@@ -79,11 +128,11 @@ export async function runScenarioTriage(context: TriageContext): Promise<TriageR
       }),
       signal: AbortSignal.timeout(120_000)
     });
-    if (!response.ok) throw new Error(`Dify returned ${response.status}`);
+    if (!response.ok) throw new Error(`AI服务返回错误（${response.status}）`);
     const payload = await response.json() as { workflow_run_id?: string; data?: { id?: string; outputs?: Record<string, unknown> } };
     const raw = payload.data?.outputs?.result ?? payload.data?.outputs?.output ?? payload.data?.outputs;
-    const output = typeof raw === "string" ? JSON.parse(raw) : raw;
-    if (!output || typeof output !== "object") throw new Error("Dify output is empty");
+    const output = typeof raw === "string" ? parseDifyJsonObject(raw) : raw;
+    if (!output || typeof output !== "object") throw new Error("AI服务未返回有效结果");
     const value = output as Record<string, unknown>;
     return {
       source: "dify",
@@ -98,8 +147,8 @@ export async function runScenarioTriage(context: TriageContext): Promise<TriageR
       remoteRunId: payload.workflow_run_id || payload.data?.id || null
     };
   } catch (error) {
-    const fallback = localFallback(context, "Dify调用失败，本次只完成基础规则检查。");
-    fallback.warnings = [`Dify 暂时不可用，已安全降级：${error instanceof Error ? error.message : "未知错误"}`];
+    const fallback = localFallback(context, "AI辅助分析调用失败，本次只完成基础规则检查。");
+    fallback.warnings = [`AI辅助分析暂时不可用，已安全降级：${error instanceof Error ? error.message : "未知错误"}`];
     return fallback;
   }
 }

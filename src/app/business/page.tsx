@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  ArrowRight, Bot, BriefcaseBusiness, Building2, CheckCircle2, ClipboardList,
+  AlertTriangle, ArrowRight, Bot, BriefcaseBusiness, Building2, CheckCircle2, ClipboardList,
   Globe2, Pencil, Plus, RefreshCw, Sparkles, Trash2, Users
 } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
@@ -200,9 +200,9 @@ export default function BusinessPage() {
     {triage && <div className="modal-backdrop" onClick={() => setTriage(null)}><section className="modal" onClick={event => event.stopPropagation()}>
       <div className="triage-head"><div className="step-icon"><Bot /></div><div><p className="eyebrow">业务情况初步检查</p><h2>{triageTitles[triage.status] || "初步检查已完成"}</h2><p className="triage-summary">{triage.summary}</p></div></div>
       <div className="triage-purpose"><strong>这页在检查什么？</strong><span>根据您填写的内容，检查信息是否完整、前后是否一致，以及是否需要进一步评估。它不会判断您填写的事实是否真实；负责人仍需结合合同、系统设置和实际记录确认。</span></div>
-      <div className={`source-note ${triage.source === "dify" ? "" : "fallback-note"}`}>检查方式：{triage.source === "dify" ? "Dify辅助分析" : "本地基础规则检查"}；本页不是合规认证或事实核验结果。</div>
+      <div className={`source-note ${triage.source === "dify" ? "" : "fallback-note"}`}>检查方式：{triage.source === "dify" ? "AI辅助分析" : "基础规则检查"}；本页不是合规认证或事实核验结果。</div>
       {triage.warnings.length > 0 && <div className="triage-warnings">{triage.warnings.map((warning, index) => <p key={index}>{warning}</p>)}</div>}
-      {triage.findings.length ? <div className="finding-list">{triage.findings.map(finding => <div className="finding finding-action" key={finding.id}><span className={`risk risk-${finding.riskLevel}`}>{riskLabels[finding.riskLevel] || "待确认"}</span><div><strong>{finding.title}</strong><p>{finding.description}</p></div>{finding.taskId ? <span className="task-created"><CheckCircle2 size={14} /> 已生成待办</span> : <button className="button small secondary" disabled={busy === finding.id} onClick={() => createFindingTask(finding.id)}>{busy === finding.id ? "生成中…" : "生成待办"}</button>}</div>)}</div> : triage.source === "dify" ? <div className="all-clear"><CheckCircle2 /><div><strong>根据目前填写的内容，暂未发现需要暂停的事项</strong><p>这表示可以继续完善合规档案，不代表实际情况已经核验或认定合规。</p></div></div> : null}
+      {triage.findings.length ? <div className="finding-list">{triage.findings.map(finding => <div className="finding finding-action" key={finding.id}><span className={`risk risk-${finding.riskLevel}`}>{riskLabels[finding.riskLevel] || "待确认"}</span><div><strong>{finding.title}</strong><p>{finding.description}</p></div>{finding.taskId ? <span className="task-created"><CheckCircle2 size={14} /> 已生成待办</span> : <button className="button small secondary" disabled={busy === finding.id} onClick={() => createFindingTask(finding.id)}>{busy === finding.id ? "生成中…" : "生成待办"}</button>}</div>)}</div> : triage.status === "draft_ready" ? <div className="all-clear"><CheckCircle2 /><div><strong>根据目前填写的内容，暂未发现需要暂停的事项</strong><p>这表示可以继续完善合规档案，不代表实际情况已经核验或认定合规。</p></div></div> : <div className="alert warning"><AlertTriangle size={18} /><div><strong>本次没有形成可确认的检查项</strong><p>请重新运行初步检查；如果仍然出现该提示，请由负责人或专业人员结合实际业务确认。</p></div></div>}
       <div className="modal-actions"><Link className="button secondary" href="/assessments">查看检查记录</Link><button className="button primary" onClick={() => setTriage(null)}>完成</button></div>
     </section></div>}
   </>;
