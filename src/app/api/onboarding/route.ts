@@ -6,7 +6,7 @@ import { assessQualification } from "@/lib/qualification";
 export const runtime = "nodejs";
 
 const schema = z.object({
-  legalName: z.string().min(2).max(200), orgType: z.string().min(1),
+  legalName: z.string().min(2).max(200), orgType: z.string().min(1), industry: z.string().trim().min(2).max(100),
   businessModel: z.enum(["B2B", "B2C", "both", "internal_only"]), ownership: z.string().min(1),
   processingRole: z.string().min(1), personCount: z.number().int().nonnegative().nullable(), countVerified: z.boolean(),
   subjectCategories: z.array(z.string()), sensitiveCategories: z.array(z.string()),

@@ -1,3 +1,5 @@
+import { normalizeChinaLegalText } from "./legal-language.ts";
+
 export interface SystemTaskSnapshot {
   onboardingCompleted: boolean;
   personCount: number | null;
@@ -27,6 +29,7 @@ export interface SystemTaskRule {
 export function buildSystemTaskRules(snapshot: SystemTaskSnapshot): SystemTaskRule[] {
   if (!snapshot.onboardingCompleted) return [];
   const highRisk = snapshot.sensitiveCategories.length > 0 || snapshot.minorsPossible !== "no" || snapshot.crossBorder !== "no";
+  const processingRoleDescription = normalizeChinaLegalText(snapshot.processingRole || "尚未确认");
   const rules: SystemTaskRule[] = [
     {
       code: "ADD-FIRST-SCENARIO", title: "添加首个业务场景", description: "选择一项实际业务，确认怎样使用个人信息。",
@@ -46,7 +49,7 @@ export function buildSystemTaskRules(snapshot: SystemTaskSnapshot): SystemTaskRu
     {
       code: "VERIFY-PROCESSING-ROLE", title: "确认贵单位怎样决定信息用途", description: "确认是自主决定使用方式，还是主要按照客户指示处理。",
       category: "适用判断", priority: "normal", satisfied: Boolean(snapshot.processingRole && snapshot.processingRole !== "unknown"),
-      completionBasis: `企业档案已确认处理角色：${snapshot.processingRole || "尚未确认"}。`, evidenceNote: "系统记录：企业档案的处理角色", createWhenUnsatisfied: true
+      completionBasis: `企业档案已记录本单位怎样决定信息用途：${processingRoleDescription}。`, evidenceNote: "系统记录：企业档案中的处理方式", createWhenUnsatisfied: true
     },
     {
       code: "HIGH-RISK-REVIEW", title: "完成高风险事项复核", description: "敏感信息、未成年人或境外访问事项需要负责人或专业人员确认。",
@@ -60,7 +63,7 @@ export function buildSystemTaskRules(snapshot: SystemTaskSnapshot): SystemTaskRu
     }
   ];
   for (const activity of snapshot.activities) rules.push({
-    code: `COMPLETE-${activity.id}`, title: `完善“${activity.name}”业务情况`, description: "确认涉及人员、信息字段、使用系统、保存期限和权利渠道。",
+    code: `COMPLETE-${activity.id}`, title: `完善“${activity.name}”业务情况`, description: "确认涉及人员、信息字段、访问岗位、删除方式和个人权利渠道。",
     category: "我的业务", priority: "normal", satisfied: activity.completeness >= 1,
     completionBasis: `“${activity.name}”的必要业务信息已全部确认。`, evidenceNote: `系统记录：我的业务 / ${activity.name}`,
     createWhenUnsatisfied: true, activityId: activity.id

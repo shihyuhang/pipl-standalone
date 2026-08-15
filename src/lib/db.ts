@@ -3,9 +3,10 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { ActivityFacts, AssessmentFinding, AssessmentRun, AuditConclusion, AuditInstance, AuditResponse, AuditEvent, BusinessDocument, DashboardData, DocumentMetadata, DocumentVersion, EnterpriseProfile, FormStatus, ImpactAnswer, PipiaCategoryCode, PipiaInstance, PipiaResponse, ProcessingActivity, TaskItem, YesNoNA } from "./types";
-import { activityFactsCompleteness, emptyActivityFacts, normalizeActivityFacts } from "./activity-facts";
-import { auditItems, buildAuditSignals } from "./audit-template";
-import { buildSystemTaskRules } from "./task-rules";
+import { activityFactsCompleteness, emptyActivityFacts, normalizeActivityFacts } from "./activity-facts.ts";
+import { auditItems, buildAuditSignals } from "./audit-template.ts";
+import { buildSystemTaskRules } from "./task-rules.ts";
+import { normalizeChinaLegalText, normalizeTriageFinding } from "./legal-language.ts";
 
 const databasePath = resolve(process.cwd(), process.env.PIPL_DATABASE_PATH || "./data/pipl-mvp.db");
 mkdirSync(dirname(databasePath), { recursive: true });
@@ -17,7 +18,7 @@ const schemaSql = `
   PRAGMA foreign_keys = ON;
   CREATE TABLE IF NOT EXISTS enterprise (
     id TEXT PRIMARY KEY, legal_name TEXT NOT NULL DEFAULT '', org_type TEXT NOT NULL DEFAULT '',
-    business_model TEXT NOT NULL DEFAULT '', ownership TEXT NOT NULL DEFAULT '', processing_role TEXT NOT NULL DEFAULT '',
+    industry TEXT NOT NULL DEFAULT '', business_model TEXT NOT NULL DEFAULT '', ownership TEXT NOT NULL DEFAULT '', processing_role TEXT NOT NULL DEFAULT '',
     person_count INTEGER, count_verified INTEGER NOT NULL DEFAULT 0, subject_categories TEXT NOT NULL DEFAULT '[]',
     sensitive_categories TEXT NOT NULL DEFAULT '[]', minors_possible TEXT NOT NULL DEFAULT 'unknown',
     cross_border TEXT NOT NULL DEFAULT 'unknown', privacy_contact_name TEXT NOT NULL DEFAULT '',
@@ -102,6 +103,7 @@ function getDb(): DatabaseSync {
     instance.exec("ALTER TABLE processing_activity ADD COLUMN facts_json TEXT NOT NULL DEFAULT '{}'");
   }
   ensureColumn(instance, "task", "source_type", "TEXT");
+  ensureColumn(instance, "enterprise", "industry", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(instance, "task", "source_id", "TEXT");
   ensureColumn(instance, "task", "activity_id", "TEXT");
   ensureColumn(instance, "task", "handling_note", "TEXT NOT NULL DEFAULT ''");
@@ -131,7 +133,7 @@ function ensureColumn(instance: DatabaseSync, table: string, name: string, defin
 export function getEnterprise(): EnterpriseProfile {
   const row = getDb().prepare("SELECT * FROM enterprise LIMIT 1").get() as Record<string, unknown>;
   return {
-    id: String(row.id), legalName: String(row.legal_name), orgType: String(row.org_type),
+    id: String(row.id), legalName: String(row.legal_name), orgType: String(row.org_type), industry: String(row.industry || ""),
     businessModel: String(row.business_model) as EnterpriseProfile["businessModel"], ownership: String(row.ownership),
     processingRole: String(row.processing_role), personCount: row.person_count === null ? null : Number(row.person_count),
     countVerified: Boolean(row.count_verified), subjectCategories: parseArray(row.subject_categories),
@@ -146,11 +148,11 @@ export function getEnterprise(): EnterpriseProfile {
 
 export function updateEnterprise(profile: Omit<EnterpriseProfile, "id" | "updatedAt">): EnterpriseProfile {
   const current = getEnterprise();
-  getDb().prepare(`UPDATE enterprise SET legal_name=?, org_type=?, business_model=?, ownership=?, processing_role=?,
+  getDb().prepare(`UPDATE enterprise SET legal_name=?, org_type=?, industry=?, business_model=?, ownership=?, processing_role=?,
     person_count=?, count_verified=?, subject_categories=?, sensitive_categories=?, minors_possible=?, cross_border=?,
     privacy_contact_name=?, privacy_contact_role=?, privacy_contact_channel=?, qualification_status=?,
     qualification_summary=?, onboarding_completed=?, updated_at=? WHERE id=?`).run(
-      profile.legalName, profile.orgType, profile.businessModel, profile.ownership, profile.processingRole,
+      profile.legalName, profile.orgType, profile.industry, profile.businessModel, profile.ownership, profile.processingRole,
       profile.personCount, profile.countVerified ? 1 : 0, JSON.stringify(profile.subjectCategories),
       JSON.stringify(profile.sensitiveCategories), profile.minorsPossible, profile.crossBorder,
       profile.privacyContactName, profile.privacyContactRole, profile.privacyContactChannel,
@@ -177,7 +179,10 @@ export function upsertTask(input: { code: string; title: string; description: st
 function reconcileSystemTasks() {
   const db = getDb();
   const enterprise = getEnterprise();
-  const activities = (db.prepare("SELECT id, name, completeness FROM processing_activity").all() as Record<string, unknown>[]).map(row => ({ id: String(row.id), name: String(row.name), completeness: Number(row.completeness) }));
+  const activities = (db.prepare("SELECT * FROM processing_activity").all() as Record<string, unknown>[]).map(row => {
+    const activity = mapActivity(row);
+    return { id: activity.id, name: activity.name, completeness: activity.completeness };
+  });
   const externalNoticeCount = Number((db.prepare("SELECT COUNT(*) AS value FROM business_document WHERE type IN ('privacy_notice','b2b_contact_notice','employee_notice')").get() as { value: number }).value);
   const rules = buildSystemTaskRules({
     onboardingCompleted: enterprise.onboardingCompleted, personCount: enterprise.personCount, countVerified: enterprise.countVerified,
@@ -217,8 +222,12 @@ function reconcileSystemTasks() {
 
 export function listTasks(): TaskItem[] {
   reconcileSystemTasks();
-  return (getDb().prepare("SELECT * FROM task ORDER BY CASE priority WHEN 'high' THEN 0 ELSE 1 END, created_at DESC").all() as Record<string, unknown>[]).map(row => ({
-    id: String(row.id), code: String(row.code), title: String(row.title), description: String(row.description),
+  return (getDb().prepare("SELECT * FROM task ORDER BY CASE priority WHEN 'high' THEN 0 ELSE 1 END, created_at DESC").all() as Record<string, unknown>[]).map(row => {
+    const normalized = row.source_type === "assessment_finding"
+      ? normalizeTriageFinding(row.title, row.description)
+      : { title: String(row.title), description: String(row.description) };
+    return {
+    id: String(row.id), code: String(row.code), title: normalized.title, description: normalized.description,
     category: String(row.category), priority: String(row.priority) as TaskItem["priority"], status: String(row.status) as TaskItem["status"],
     createdAt: String(row.created_at), completedAt: row.completed_at ? String(row.completed_at) : null,
     sourceType: row.source_type ? String(row.source_type) : null,
@@ -227,7 +236,7 @@ export function listTasks(): TaskItem[] {
     handlingNote: String(row.handling_note || ""), evidenceNote: String(row.evidence_note || ""),
     responsibleName: String(row.responsible_name || ""), startedAt: row.started_at ? String(row.started_at) : null,
     completionMode: String(row.completion_mode || "manual") as TaskItem["completionMode"], completionBasis: String(row.completion_basis || "")
-  }));
+  }; });
 }
 
 export function updateTask(id: string, input: {
@@ -254,10 +263,12 @@ export function updateTask(id: string, input: {
 }
 
 export function createActivity(input: { scenarioCode: string; name: string; description?: string }): ProcessingActivity {
-  const item = { id: randomUUID(), scenarioCode: input.scenarioCode, name: input.name, description: input.description || "", status: "draft" as const, completeness: 0.15, facts: emptyActivityFacts(), createdAt: now() };
+  const initialFacts = emptyActivityFacts();
+  initialFacts.rightsChannel = getEnterprise().privacyContactChannel;
+  const item = { id: randomUUID(), scenarioCode: input.scenarioCode, name: input.name, description: input.description || "", status: "draft" as const, completeness: 0.15, facts: initialFacts, createdAt: now() };
   getDb().prepare("INSERT INTO processing_activity (id, scenario_code, name, description, status, completeness, facts_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     .run(item.id, item.scenarioCode, item.name, item.description, item.status, item.completeness, JSON.stringify(item.facts), item.createdAt);
-  upsertTask({ code: `COMPLETE-${item.id}`, title: `完善“${item.name}”业务情况`, description: "确认涉及人员、信息字段、使用系统、保存期限和权利渠道。", category: "我的业务" });
+  upsertTask({ code: `COMPLETE-${item.id}`, title: `完善“${item.name}”业务情况`, description: "确认涉及人员、信息字段、访问岗位、删除方式和个人权利渠道。", category: "我的业务" });
   addAuditEvent("activity.created", `新增业务场景：${item.name}`);
   return item;
 }
@@ -269,10 +280,11 @@ export function listActivities(): ProcessingActivity[] {
 function mapActivity(row: Record<string, unknown>): ProcessingActivity {
   let rawFacts: unknown = {};
   try { rawFacts = JSON.parse(String(row.facts_json || "{}")); } catch { rawFacts = {}; }
+  const facts = normalizeActivityFacts(rawFacts);
   return {
     id: String(row.id), scenarioCode: String(row.scenario_code), name: String(row.name), description: String(row.description),
-    status: String(row.status) as ProcessingActivity["status"], completeness: Number(row.completeness),
-    facts: normalizeActivityFacts(rawFacts), createdAt: String(row.created_at)
+    status: String(row.status) as ProcessingActivity["status"], completeness: activityFactsCompleteness(facts),
+    facts, createdAt: String(row.created_at)
   };
 }
 
@@ -399,10 +411,14 @@ type AssessmentInput = {
   warnings: string[];
   findings: Array<{ title: string; description: string; riskLevel: AssessmentFinding["riskLevel"] }>;
   remoteRunId?: string | null;
+  workflowVersion?: string;
 };
 
 export function createAssessmentRun(activity: ProcessingActivity, enterpriseSnapshot: Record<string, unknown>, result: AssessmentInput): AssessmentRun {
   const db = getDb(); const id = randomUUID(); const createdAt = now();
+  const normalizedSummary = normalizeChinaLegalText(result.summary);
+  const normalizedWarnings = result.warnings.map(normalizeChinaLegalText);
+  const normalizedFindings = result.findings.map(finding => ({ ...finding, ...normalizeTriageFinding(finding.title, finding.description) }));
   const sequenceRow = db.prepare("SELECT COALESCE(MAX(sequence), 0) AS value FROM assessment_run WHERE activity_id=?").get(activity.id) as { value: number };
   const sequence = Number(sequenceRow.value) + 1;
   db.exec("BEGIN");
@@ -411,13 +427,14 @@ export function createAssessmentRun(activity: ProcessingActivity, enterpriseSnap
     db.prepare(`INSERT INTO assessment_run
       (id, activity_id, sequence, source, status, summary, review_required, warnings_json, facts_snapshot_json,
        enterprise_snapshot_json, workflow_code, workflow_version, remote_run_id, validity, invalidated_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scenario_triage', 'scenario-triage-mvp-v1', ?, 'current', NULL, ?)`)
-      .run(id, activity.id, sequence, result.source, result.status, result.summary, result.reviewRequired ? 1 : 0,
-        JSON.stringify(result.warnings), JSON.stringify(activity.facts), JSON.stringify(enterpriseSnapshot), result.remoteRunId || null, createdAt);
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scenario_triage', ?, ?, 'current', NULL, ?)`)
+      .run(id, activity.id, sequence, result.source, result.status, normalizedSummary, result.reviewRequired ? 1 : 0,
+        JSON.stringify(normalizedWarnings), JSON.stringify(activity.facts), JSON.stringify(enterpriseSnapshot),
+        result.workflowVersion || `scenario-triage-${result.source}-v1`, result.remoteRunId || null, createdAt);
     const statement = db.prepare(`INSERT INTO assessment_finding
       (id, assessment_id, title, description, risk_level, status, task_id, created_at)
       VALUES (?, ?, ?, ?, ?, 'open', NULL, ?)`);
-    for (const finding of result.findings) statement.run(randomUUID(), id, finding.title, finding.description, finding.riskLevel, createdAt);
+    for (const finding of normalizedFindings) statement.run(randomUUID(), id, finding.title, finding.description, finding.riskLevel, createdAt);
     db.exec("COMMIT");
   } catch (error) { db.exec("ROLLBACK"); throw error; }
   addAuditEvent("assessment.created", `完成“${activity.name}”第 ${sequence} 次初步检查`);
@@ -425,8 +442,9 @@ export function createAssessmentRun(activity: ProcessingActivity, enterpriseSnap
 }
 
 function mapFinding(row: Record<string, unknown>): AssessmentFinding {
+  const normalized = normalizeTriageFinding(row.title, row.description);
   return {
-    id: String(row.id), assessmentId: String(row.assessment_id), title: String(row.title), description: String(row.description),
+    id: String(row.id), assessmentId: String(row.assessment_id), title: normalized.title, description: normalized.description,
     riskLevel: String(row.risk_level) as AssessmentFinding["riskLevel"], status: String(row.status) as AssessmentFinding["status"],
     taskId: row.task_id ? String(row.task_id) : null, createdAt: String(row.created_at)
   };
@@ -438,8 +456,8 @@ function mapAssessment(row: Record<string, unknown>): AssessmentRun {
   const findings = (getDb().prepare("SELECT * FROM assessment_finding WHERE assessment_id=? ORDER BY created_at, id").all(String(row.id)) as Record<string, unknown>[]).map(mapFinding);
   return {
     id: String(row.id), activityId: String(row.activity_id), activityName: String(row.activity_name || "业务场景"), sequence: Number(row.sequence),
-    source: String(row.source) as AssessmentRun["source"], status: String(row.status) as AssessmentRun["status"], summary: String(row.summary),
-    reviewRequired: Boolean(row.review_required), warnings: parseList(row.warnings_json), factsSnapshot: normalizeActivityFacts(parseObject(row.facts_snapshot_json)),
+    source: String(row.source) as AssessmentRun["source"], status: String(row.status) as AssessmentRun["status"], summary: normalizeChinaLegalText(row.summary),
+    reviewRequired: Boolean(row.review_required), warnings: parseList(row.warnings_json).map(normalizeChinaLegalText), factsSnapshot: normalizeActivityFacts(parseObject(row.facts_snapshot_json)),
     enterpriseSnapshot: parseObject(row.enterprise_snapshot_json), workflowCode: String(row.workflow_code), workflowVersion: String(row.workflow_version),
     remoteRunId: row.remote_run_id ? String(row.remote_run_id) : null, validity: String(row.validity) as AssessmentRun["validity"],
     invalidatedAt: row.invalidated_at ? String(row.invalidated_at) : null, createdAt: String(row.created_at), findings
@@ -466,12 +484,13 @@ export function createTaskFromFinding(assessmentId: string, findingId: string): 
   const assessment = getAssessment(assessmentId);
   if (!assessment) return null;
   const taskId = randomUUID();
+  const normalized = normalizeTriageFinding(finding.title, finding.description);
   getDb().prepare(`INSERT INTO task
     (id, code, title, description, category, priority, status, created_at, completed_at, source_type, source_id, activity_id)
     VALUES (?, ?, ?, ?, '初步检查', ?, 'open', ?, NULL, 'assessment_finding', ?, ?)`)
-    .run(taskId, `FINDING-${findingId}`, String(finding.title), String(finding.description), String(finding.risk_level) === "L3" ? "high" : "normal", now(), findingId, assessment.activityId);
+    .run(taskId, `FINDING-${findingId}`, normalized.title, normalized.description, String(finding.risk_level) === "L3" ? "high" : "normal", now(), findingId, assessment.activityId);
   getDb().prepare("UPDATE assessment_finding SET status='task_created', task_id=? WHERE id=?").run(taskId, findingId);
-  addAuditEvent("assessment.finding.task_created", `将检查发现转为待办：${String(finding.title)}`);
+  addAuditEvent("assessment.finding.task_created", `将检查发现转为待办：${normalized.title}`);
   return listTasks().find(item => item.id === taskId) || null;
 }
 

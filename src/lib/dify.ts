@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { normalizeChinaLegalText, normalizeTriageFinding } from "./legal-language.ts";
 
 export interface TriageContext {
   enterprise: Record<string, unknown>;
@@ -7,13 +8,51 @@ export interface TriageContext {
 }
 
 export interface TriageResult {
-  source: "dify" | "local_rules";
+  source: "deepseek" | "qwen" | "kimi" | "dify" | "local_rules";
   status: "draft_ready" | "needs_review" | "needs_input";
   summary: string;
   reviewRequired: boolean;
   findings: Array<{ title: string; description: string; riskLevel: "L0" | "L1" | "L2" | "L3" }>;
   warnings: string[];
   remoteRunId?: string | null;
+  workflowVersion?: string;
+}
+
+export function stabilizeTriageStatus(
+  status: TriageResult["status"],
+  findings: TriageResult["findings"],
+  deterministicReviewRequired = false
+): TriageResult["status"] {
+  if (deterministicReviewRequired || findings.some(item => item.riskLevel === "L3")) return "needs_review";
+  if (status === "needs_review") return findings.some(item => item.riskLevel === "L2") ? "needs_input" : "draft_ready";
+  if (status === "needs_input" && findings.length > 0 && findings.every(item => item.riskLevel === "L0" || item.riskLevel === "L1")) return "draft_ready";
+  return status;
+}
+
+const aiLabels: Record<string, string> = {
+  company: "公司", branch: "分支机构", individual_business: "个体工商户", partnership: "合伙企业", institution: "其他组织",
+  domestic: "非外商投资企业", foreign_invested: "外商投资企业", foreign_branch: "外国企业在华分支",
+  independent_processor: "主要由本单位自行决定处理目的和方式",
+  entrusted_processor: "主要按照客户或其他单位的指示处理",
+  mixed: "不同业务中既有自行决定，也有受托处理",
+  employee: "在职员工", candidate: "招聘候选人", customer_contact: "客户企业联系人",
+  supplier_contact: "供应商联系人", consumer: "消费者或会员", visitor: "访客",
+  identity_document: "身份证件", financial_account: "金融账户", health: "健康信息",
+  biometric: "人脸或指纹", precise_location: "精确位置",
+  yes: "是", no: "否", unknown: "尚未确认",
+  eligible: "适合使用小型处理者工作路径", conditional: "完成待确认事项后再判断",
+  needs_review: "存在需要人工复核的事项", out_of_scope: "超出小型处理者工作路径"
+};
+
+export function buildAiEnterpriseContext(input: Record<string, unknown>): Record<string, unknown> {
+  const label = (value: unknown) => aiLabels[String(value)] || value;
+  const labels = (value: unknown) => Array.isArray(value) ? value.map(label) : value;
+  return {
+    ...input,
+    orgType: label(input.orgType), industry: input.industry, ownership: label(input.ownership), processingRole: label(input.processingRole),
+    subjectCategories: labels(input.subjectCategories), sensitiveCategories: labels(input.sensitiveCategories),
+    minorsPossible: label(input.minorsPossible), crossBorder: label(input.crossBorder), qualificationStatus: label(input.qualificationStatus)
+  };
 }
 
 /**
@@ -65,6 +104,10 @@ export function parseDifyJsonObject(input: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+// The parser is shared by Dify and direct model APIs. Keep the old export for
+// compatibility with existing workflow tests and integrations.
+export const parseAiJsonObject = parseDifyJsonObject;
+
 function humanizeFindingText(input: unknown): string {
   let text = String(input || "");
   text = text
@@ -78,40 +121,80 @@ function humanizeFindingText(input: unknown): string {
     ["subjectCategories", "企业档案中的人员类别"], ["sensitiveInformation", "是否涉及敏感个人信息"],
     ["minorsInvolved", "是否涉及不满十四周岁未成年人"], ["crossBorderAccess", "境外存储或访问"],
     ["recipients", "外部接收方"], ["retentionPeriod", "保存期限"], ["systems", "使用的系统"],
+    ["approximatePersonCount", "这项业务大约涉及的人数"], ["accessRoles", "可访问岗位"],
+    ["systemOperators", "系统运维方"], ["deletionMethod", "到期删除方式"],
+    ["rightsChannel", "个人权利渠道"], ["automatedDecision", "是否使用自动化决策"],
     ["countVerified", "人数口径是否确认"], ["personCount", "涉及人数"],
+    ["processingRole", "贵单位怎样决定信息用途"], ["confirmed_facts", "已确认的业务事实"],
+    ["independent_processor", "主要由本单位自行决定"], ["entrusted_processor", "主要按照客户或其他单位指示处理"],
     ["employee", "员工"], ["candidate", "求职者"], ["consumer", "消费者"], ["visitor", "访客"],
     ["unknown", "尚未确认"]
   ];
   for (const [source, target] of labels) text = text.split(source).join(target);
-  return text;
+  return normalizeChinaLegalText(text);
 }
 
-function localFallback(context: TriageContext, warning: string): TriageResult {
+export function runLocalScenarioTriage(context: TriageContext, warning: string): TriageResult {
   const enterprise = context.enterprise;
   const facts = context.confirmedFacts || {};
   const findings: TriageResult["findings"] = [];
   if (enterprise.crossBorder !== "no" || facts.crossBorderAccess !== "no") findings.push({ title: "确认境外访问情况", description: "请确认信息是否存到境外，或被境外团队、供应商、管理员远程查看。", riskLevel: facts.crossBorderAccess === "yes" ? "L3" : "L2" });
   if ((Array.isArray(enterprise.sensitiveCategories) && enterprise.sensitiveCategories.length > 0) || facts.sensitiveInformation !== "no") findings.push({ title: "复核敏感个人信息", description: "需要进一步确认处理目的、必要性、告知同意和保护措施。", riskLevel: facts.sensitiveInformation === "unknown" ? "L2" : "L3" });
   if (enterprise.minorsPossible !== "no" || facts.minorsInvolved !== "no") findings.push({ title: "确认未成年人情况", description: "可能涉及不满十四周岁未成年人时，需要专项复核。", riskLevel: facts.minorsInvolved === "unknown" ? "L2" : "L3" });
+  if (facts.automatedDecision === "yes") findings.push({ title: "复核自动化决策安排", description: "请确认自动化决策的用途、对个人的影响、告知方式和拒绝渠道，并判断是否需要专项评估。", riskLevel: "L3" });
+  else if (facts.automatedDecision === "unknown") findings.push({ title: "确认是否使用自动化决策", description: "请确认系统是否会自动决定推荐、价格、资格或其他对个人有影响的结果。", riskLevel: "L2" });
   if (Array.isArray(facts.recipients) && facts.recipients.includes("暂不清楚")) findings.push({ title: "确认外部接收方", description: "需要确认是否有云服务商、集团公司、客户或合作方接收这些信息。", riskLevel: "L2" });
   return {
     source: "local_rules",
     status: findings.some(f => f.riskLevel === "L3") ? "needs_review" : findings.length ? "needs_input" : "draft_ready",
     summary: findings.length ? `基础规则发现 ${findings.length} 项需要确认的情况。` : "已完成基础规则检查，尚未运行AI快速分流。",
     reviewRequired: findings.some(f => f.riskLevel === "L3"), findings,
-    warnings: [warning]
+    warnings: warning ? [warning] : [],
+    workflowVersion: "scenario-triage-local-rules-v1"
   };
 }
 
-export async function runScenarioTriage(context: TriageContext): Promise<TriageResult> {
+export function normalizeAiTriageResult(
+  context: TriageContext,
+  value: Record<string, unknown>,
+  source: Exclude<TriageResult["source"], "local_rules">,
+  remoteRunId?: string | null,
+  workflowVersion = `scenario-triage-${source}-v1`
+): TriageResult {
+  const warnings = Array.isArray(value.warnings) ? value.warnings.map(normalizeChinaLegalText) : [];
+  if (String(value.summary || "").includes("未通过格式校验") || warnings.some(item => item.includes("模型输出解析失败"))) {
+    throw new Error(warnings[0] || "AI输出未通过格式校验");
+  }
+  const findings = Array.isArray(value.findings) ? value.findings.map((item: unknown) => {
+    const finding = item as Record<string, unknown>;
+    const normalized = normalizeTriageFinding(humanizeFindingText(finding.title || "待确认事项"), humanizeFindingText(finding.description || ""));
+    return { ...normalized, riskLevel: (["L0", "L1", "L2", "L3"].includes(String(finding.risk_level)) ? finding.risk_level : "L2") as "L0" | "L1" | "L2" | "L3" };
+  }) : [];
+  const deterministic = runLocalScenarioTriage(context, "");
+  for (const required of deterministic.findings.filter(item => item.riskLevel === "L3")) {
+    if (!findings.some(item => item.title === required.title)) findings.push(required);
+  }
+  const hasL3 = findings.some(item => item.riskLevel === "L3") || deterministic.reviewRequired;
+  const modelStatus = (["draft_ready", "needs_review", "needs_input"].includes(String(value.status)) ? value.status : "needs_review") as TriageResult["status"];
+  const status = stabilizeTriageStatus(modelStatus, findings, deterministic.reviewRequired);
+  const modelSummary = humanizeFindingText(value.summary || "系统已完成初步检查，等待负责人确认。");
+  const summary = modelStatus !== "draft_ready" && status === "draft_ready"
+    ? "暂未发现需要暂停的事项，可以继续完善普通业务信息。"
+    : modelSummary;
+  return { source, status, summary, reviewRequired: hasL3, findings, warnings, remoteRunId, workflowVersion };
+}
+
+export async function runDifyScenarioTriage(context: TriageContext): Promise<TriageResult> {
   const enabled = process.env.DIFY_ENABLE === "true";
   const apiKey = process.env.DIFY_API_KEY_SCENARIO_TRIAGE;
   const baseUrl = (process.env.DIFY_API_BASE_URL || "https://dify.legalkit.xyz/v1").replace(/\/$/, "");
-  if (!enabled) return localFallback(context, "AI辅助分析尚未启用，本次只完成基础规则检查，不能视为AI分析结论。");
-  if (!apiKey) return localFallback(context, "AI辅助分析服务尚未配置，本次只完成基础规则检查。");
+  if (!enabled) return runLocalScenarioTriage(context, "AI辅助分析尚未启用，本次只完成基础规则检查，不能视为AI分析结论。");
+  if (!apiKey) return runLocalScenarioTriage(context, "AI辅助分析服务尚未配置，本次只完成基础规则检查。");
 
-  try {
-    const response = await fetch(`${baseUrl}/workflows/run`, {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(`${baseUrl}/workflows/run`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -119,7 +202,7 @@ export async function runScenarioTriage(context: TriageContext): Promise<TriageR
           schema_version: "1.0.0",
           run_id: randomUUID(),
           workflow_code: "scenario_triage",
-          enterprise_context: JSON.stringify(context.enterprise),
+          enterprise_context: JSON.stringify(buildAiEnterpriseContext(context.enterprise)),
           scenario_context: JSON.stringify(context.scenario),
           confirmed_facts: JSON.stringify(context.confirmedFacts || {})
         },
@@ -127,28 +210,18 @@ export async function runScenarioTriage(context: TriageContext): Promise<TriageR
         user: `enterprise-${String(context.enterprise.id || "mvp")}`
       }),
       signal: AbortSignal.timeout(120_000)
-    });
-    if (!response.ok) throw new Error(`AI服务返回错误（${response.status}）`);
-    const payload = await response.json() as { workflow_run_id?: string; data?: { id?: string; outputs?: Record<string, unknown> } };
-    const raw = payload.data?.outputs?.result ?? payload.data?.outputs?.output ?? payload.data?.outputs;
-    const output = typeof raw === "string" ? parseDifyJsonObject(raw) : raw;
-    if (!output || typeof output !== "object") throw new Error("AI服务未返回有效结果");
-    const value = output as Record<string, unknown>;
-    return {
-      source: "dify",
-      status: (["draft_ready", "needs_review", "needs_input"].includes(String(value.status)) ? value.status : "needs_review") as TriageResult["status"],
-      summary: humanizeFindingText(value.summary || "系统已完成初步检查，等待负责人确认。"),
-      reviewRequired: value.review_required !== false,
-      findings: Array.isArray(value.findings) ? value.findings.map((item: unknown) => {
-        const finding = item as Record<string, unknown>;
-        return { title: humanizeFindingText(finding.title || "待确认事项"), description: humanizeFindingText(finding.description || ""), riskLevel: (["L0", "L1", "L2", "L3"].includes(String(finding.risk_level)) ? finding.risk_level : "L2") as "L0" | "L1" | "L2" | "L3" };
-      }) : [],
-      warnings: Array.isArray(value.warnings) ? value.warnings.map(String) : [],
-      remoteRunId: payload.workflow_run_id || payload.data?.id || null
-    };
-  } catch (error) {
-    const fallback = localFallback(context, "AI辅助分析调用失败，本次只完成基础规则检查。");
-    fallback.warnings = [`AI辅助分析暂时不可用，已安全降级：${error instanceof Error ? error.message : "未知错误"}`];
-    return fallback;
+      });
+      if (!response.ok) throw new Error(`AI服务返回错误（${response.status}）`);
+      const payload = await response.json() as { workflow_run_id?: string; data?: { id?: string; outputs?: Record<string, unknown> } };
+      const raw = payload.data?.outputs?.result ?? payload.data?.outputs?.output ?? payload.data?.outputs;
+      const output = typeof raw === "string" ? parseDifyJsonObject(raw) : raw;
+      if (!output || typeof output !== "object") throw new Error("AI服务未返回有效结果");
+      return normalizeAiTriageResult(context, output as Record<string, unknown>, "dify", payload.workflow_run_id || payload.data?.id || null, "scenario-triage-dify-v1");
+    } catch (error) {
+      lastError = error;
+    }
   }
+  const fallback = runLocalScenarioTriage(context, "AI辅助分析调用失败，本次只完成基础规则检查。");
+  fallback.warnings = [`AI辅助分析暂时不可用，已安全降级：${lastError instanceof Error ? lastError.message : "未知错误"}`];
+  return fallback;
 }

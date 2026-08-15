@@ -4,7 +4,7 @@ import { auditGroups, auditItems, buildAuditSignals } from "../src/lib/audit-tem
 import type { EnterpriseProfile, ProcessingActivity } from "../src/lib/types.ts";
 
 const enterprise: EnterpriseProfile = {
-  id: "enterprise-1", legalName: "示例外资咨询有限公司", orgType: "有限责任公司", businessModel: "B2B",
+  id: "enterprise-1", legalName: "示例外资咨询有限公司", orgType: "有限责任公司", industry: "管理咨询", businessModel: "B2B",
   ownership: "外商投资企业", processingRole: "个人信息处理者", personCount: 80, countVerified: true,
   subjectCategories: ["客户联系人"], sensitiveCategories: [], minorsPossible: "no", crossBorder: "no",
   privacyContactName: "王经理", privacyContactRole: "行政经理", privacyContactChannel: "privacy@example.com",
@@ -17,7 +17,9 @@ const activity: ProcessingActivity = {
   facts: {
     dataSubjects: ["客户联系人"], informationTypes: ["姓名和联系方式"], purposes: ["履行项目或合同"],
     collectionChannels: ["企业客户提供"], systems: ["企业邮箱"], recipients: ["不向外部提供"],
-    retentionPeriod: "合作结束后3年", sensitiveInformation: "no", minorsInvolved: "no", crossBorderAccess: "no", notes: "", confirmedAt: "2026-08-09T00:00:00.000Z"
+    approximatePersonCount: 80, accessRoles: ["业务经办人员"], systemOperators: ["本单位系统管理员"],
+    retentionPeriod: "合作结束后3年", deletionMethod: "由行政负责人按季度删除到期记录", rightsChannel: "privacy@example.com",
+    automatedDecision: "no", sensitiveInformation: "no", minorsInvolved: "no", crossBorderAccess: "no", notes: "", confirmedAt: "2026-08-09T00:00:00.000Z"
   }
 };
 
@@ -39,4 +41,12 @@ test("自查线索使用企业和业务事实，不把线索当作自动结论",
   const signals = buildAuditSignals("A12", { enterprise, activities: [activity], documents: [], assessments: [], pipias: [], tasks: [] });
   assert.ok(signals.some(signal => /不涉及敏感个人信息/.test(signal.text)));
   assert.ok(signals.every(signal => ["positive", "warning", "neutral"].includes(signal.tone)));
+});
+
+test("自动化决策线索直接使用业务事实，不再根据营销用途猜测", () => {
+  const normalSignals = buildAuditSignals("A08", { enterprise, activities: [activity], documents: [], assessments: [], pipias: [], tasks: [] });
+  assert.ok(normalSignals.some(signal => /不使用自动化决策/.test(signal.text)));
+  const automated = { ...activity, facts: { ...activity.facts, automatedDecision: "yes" as const } };
+  const warningSignals = buildAuditSignals("A08", { enterprise, activities: [automated], documents: [], assessments: [], pipias: [], tasks: [] });
+  assert.ok(warningSignals.some(signal => signal.tone === "warning" && /影响评估/.test(signal.text)));
 });

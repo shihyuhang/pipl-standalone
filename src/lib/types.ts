@@ -9,6 +9,7 @@ export interface EnterpriseProfile {
   id: string;
   legalName: string;
   orgType: string;
+  industry: string;
   businessModel: "B2B" | "B2C" | "both" | "internal_only" | "";
   ownership: string;
   processingRole: string;
@@ -93,7 +94,13 @@ export interface ActivityFacts {
   collectionChannels: string[];
   systems: string[];
   recipients: string[];
+  approximatePersonCount: number | null;
+  accessRoles: string[];
+  systemOperators: string[];
   retentionPeriod: string;
+  deletionMethod: string;
+  rightsChannel: string;
+  automatedDecision: FactAnswer;
   sensitiveInformation: FactAnswer;
   minorsInvolved: FactAnswer;
   crossBorderAccess: FactAnswer;
@@ -159,7 +166,7 @@ export interface AssessmentRun {
   activityId: string;
   activityName: string;
   sequence: number;
-  source: "dify" | "local_rules";
+  source: "deepseek" | "qwen" | "kimi" | "dify" | "local_rules";
   status: AssessmentResultStatus;
   summary: string;
   reviewRequired: boolean;

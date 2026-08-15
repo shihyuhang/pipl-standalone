@@ -4,10 +4,10 @@
 
 面向小型个人信息处理者的一站式个人信息保护工作台。当前 MVP 已覆盖：
 
-- 企业快速建档与小型处理者路径判断；
+- 企业名称、单位类型、所属行业等基本信息建档与小型处理者路径判断；
 - B2B、员工、官网等业务场景登记和简短事实确认；
-- 完成业务情况后运行云端 Dify 初步检查，失败时安全降级为本地基础检查；
-- 保存每次检查的事实快照、Dify 运行来源、发现和历史结论；
+- 完成业务情况后运行规则与 AI 辅助初步检查，失败时安全降级为本地基础检查；
+- 保存每次检查的事实快照、分析版本、发现和历史结论；
 - 业务事实修改后自动标记旧检查结果过时；
 - 将检查发现一键转为可跟踪的合规待办；
 - 通过三步向导建立对外告知、内部要求和内部台账；
@@ -49,17 +49,34 @@ copy .env.example .env.local
 
 打开 `http://localhost:3000`。默认使用 Node 内置 SQLite，数据保存在 `data/pipl-mvp.db`。
 
-## 可选接入 Dify
+## 接入 AI（不需要 Dify）
 
-不配置 Dify 时系统会使用确定性规则完成基础检查，但界面不会将其表述为 AI 分流结论。需要接入时，在 `.env.local` 中配置：
+系统可以直接调用 DeepSeek、通义千问或 Kimi。只需选择一家并在 `.env.local` 中配置，例如 DeepSeek：
+
+```env
+AI_SCENARIO_TRIAGE_PROVIDER=deepseek
+AI_SCENARIO_TRIAGE_FALLBACK_PROVIDER=local
+DEEPSEEK_API_KEY=请在本地填写
+DEEPSEEK_API_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
+```
+
+通义千问使用 `DASHSCOPE_API_KEY`，Kimi 使用 `MOONSHOT_API_KEY`。也可以将 `AI_SCENARIO_TRIAGE_PROVIDER` 设为 `auto`，系统会选择已经配置的直连模型。密钥不得提交到代码仓库。
+
+模型接口异常、输出被截断或结构不符合要求时，系统会自动退回基础规则检查。页面统一显示“AI辅助分析”，不会向普通用户暴露模型供应商。
+
+## Dify 作为可选方案
+
+已部署的 Dify 可以继续使用，但不再是必需组件。需要使用时，在 `.env.local` 中配置：
 
 ```env
 DIFY_API_BASE_URL=https://dify.legalkit.xyz/v1
 DIFY_ENABLE=true
 DIFY_API_KEY_SCENARIO_TRIAGE=app-请在本地填写
+AI_SCENARIO_TRIAGE_PROVIDER=dify
 ```
 
-密钥不得提交到代码仓库。Dify 工作流应接受 `enterprise_context`、`scenario_context` 和 `confirmed_facts` 三个字符串输入，并通过 `result` 输出结构化 JSON。
+Dify 工作流应接受 `enterprise_context`、`scenario_context` 和 `confirmed_facts` 三个字符串输入，并通过 `result` 输出结构化 JSON。如需把 Dify 作为直连模型的备用服务，可设置 `AI_SCENARIO_TRIAGE_FALLBACK_PROVIDER=dify`。
 
 ## 校验
 

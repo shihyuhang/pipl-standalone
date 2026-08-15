@@ -27,3 +27,10 @@ test("高风险事实仍存在时不能自动关闭复核任务", () => {
   const rules = buildSystemTaskRules({ ...base, sensitiveCategories: ["健康信息"] });
   assert.equal(rules.find(item => item.code === "HIGH-RISK-REVIEW")?.satisfied, false);
 });
+
+test("任务完成依据不展示内部处理角色枚举", () => {
+  const rules = buildSystemTaskRules({ ...base, processingRole: "independent_processor" });
+  const roleRule = rules.find(item => item.code === "VERIFY-PROCESSING-ROLE")!;
+  assert.match(roleRule.completionBasis, /主要由本单位自行决定/);
+  assert.doesNotMatch(roleRule.completionBasis, /independent_processor|processingRole/);
+});
