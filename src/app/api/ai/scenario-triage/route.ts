@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAssessmentRun, getActivity, getEnterprise } from "@/lib/db";
-import { runScenarioTriage } from "@/lib/dify";
+import { runScenarioTriage } from "@/lib/ai-gateway";
 import { isActivityReadyForTriage } from "@/lib/activity-facts";
 
 export const runtime = "nodejs";
@@ -17,6 +17,7 @@ export async function POST(request: Request) {
   const minimizedEnterpriseContext = {
     id: enterprise.id,
     orgType: enterprise.orgType,
+    industry: enterprise.industry,
     businessModel: enterprise.businessModel,
     ownership: enterprise.ownership,
     processingRole: enterprise.processingRole,

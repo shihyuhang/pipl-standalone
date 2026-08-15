@@ -323,6 +323,9 @@ workflow:
             - 风险描述必须指出具体信息、用途、人员、系统、合作方或缺失事实，不写“可能泄露”等空泛表述。
             - summary、title 和 description 是给不熟悉法律、技术和数据治理术语的小企业负责人看的，必须使用自然、简短、通俗的中文。
             - 用户可见文字不得出现 informationTypes、purposes、dataSubjects、recipients、systems、personCount、countVerified、sensitiveInformation、crossBorderAccess 等 JSON 字段名，也不得出现 employee、consumer、unknown、true、false 等英文枚举值。
+            - 本工作流适用中国《个人信息保护法》。只使用“个人信息处理者”“受托人”“共同处理”“相关个人”等中国法称谓；不得使用“控制者”“数据控制者”“独立处理者”“受托处理者”“数据主体”以及 controller、processor、data subject 等 GDPR 称谓。
+            - 用户可见文字不得出现 processingRole、independent_processor、entrusted_processor 等内部字段或枚举；应改写为“由本单位自行决定”或“主要按照客户或其他单位的要求代为处理”。
+            - 处理关系必须根据当前具体业务判断，不能仅凭企业公共画像直接认定角色冲突。自行决定本项业务处理目的和方式的称为“个人信息处理者”；主要按照委托约定处理的称为“受托人”。
             - summary 不超过 45 个汉字，只概括“可以继续、需要补充或需要专业复核”，不要罗列全部问题。
             - 每项 description 建议采用“目前填写的是……；请确认或补充……”的表达，并明确下一步怎么做。
             - 只能检查输入内容是否完整、前后一致以及是否触发进一步评估，不得宣称已核实企业事实真伪。
@@ -395,12 +398,29 @@ workflow:
     - data:
         code: |-
           import json
+          import re
 
           ALLOWED_STATUS = {'draft_ready', 'needs_input', 'needs_review'}
           ALLOWED_RISK = {'L0', 'L1', 'L2', 'L3'}
 
+          def normalize_cn_terms(value):
+              text = str(value or '')
+              replacements = [
+                  (r'processingRole\s*(?:为|=|：|:)?\s*independent_processor', '企业档案记录为“主要由本单位自行决定”'),
+                  (r'processingRole\s*(?:为|=|：|:)?\s*entrusted_processor', '企业档案记录为“主要按照客户或其他单位的要求代为处理”'),
+                  (r'\bprocessingRole\b', '企业档案中的处理方式'),
+                  (r'\bindependent_processor\b', '主要由本单位自行决定'),
+                  (r'\bentrusted_processor\b', '主要按照客户或其他单位的要求代为处理'),
+                  (r'\bdata\s+controller\b|\bcontroller\b|数据控制者|独立处理者|控制者', '个人信息处理者'),
+                  (r'\bdata\s+processor\b|\bprocessor\b|受托处理者', '受托人'),
+                  (r'\bdata\s+subjects?\b|数据主体', '相关个人')
+              ]
+              for pattern, replacement in replacements:
+                  text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+              return text
+
           def safe_text(value, limit):
-              return str(value or '').strip()[:limit]
+              return normalize_cn_terms(value).strip()[:limit]
 
           def extract_json(raw):
               text = str(raw or '').lstrip('\ufeff').strip()

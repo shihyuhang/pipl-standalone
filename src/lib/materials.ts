@@ -28,7 +28,7 @@ const yn = (value: string) => value === "yes" ? "涉及" : value === "no" ? "不
 function activitySections(activities: ProcessingActivity[]) {
   return activities.map((activity, index) => {
     const facts = activity.facts;
-    return `### ${index + 1}. ${activity.name}\n\n- 涉及人员：${join(facts.dataSubjects)}\n- 使用的个人信息：${join(facts.informationTypes)}\n- 使用目的：${join(facts.purposes)}\n- 信息来源：${join(facts.collectionChannels)}\n- 保存或使用位置：${join(facts.systems)}\n- 外部接收方：${join(facts.recipients, "不向外部提供") }\n- 保存期限或删除条件：${facts.retentionPeriod || "待确认"}\n- 敏感个人信息：${yn(facts.sensitiveInformation)}\n- 不满十四周岁未成年人：${yn(facts.minorsInvolved)}\n- 境外存储或访问：${yn(facts.crossBorderAccess)}`;
+    return `### ${index + 1}. ${activity.name}\n\n- 涉及人员：${join(facts.dataSubjects)}\n- 场景涉及人数：${facts.approximatePersonCount === null ? "待确认" : `约 ${facts.approximatePersonCount} 人`}\n- 使用的个人信息：${join(facts.informationTypes)}\n- 使用目的：${join(facts.purposes)}\n- 信息来源：${join(facts.collectionChannels)}\n- 保存或使用位置：${join(facts.systems)}\n- 可访问岗位：${join(facts.accessRoles)}\n- 系统运维方：${join(facts.systemOperators)}\n- 外部接收方：${join(facts.recipients, "不向外部提供") }\n- 保存期限或删除条件：${facts.retentionPeriod || "待确认"}\n- 到期处理方式：${facts.deletionMethod || "待确认"}\n- 个人权利渠道：${facts.rightsChannel || "待确认"}\n- 自动化决策：${yn(facts.automatedDecision)}\n- 敏感个人信息：${yn(facts.sensitiveInformation)}\n- 不满十四周岁未成年人：${yn(facts.minorsInvolved)}\n- 境外存储或访问：${yn(facts.crossBorderAccess)}`;
   }).join("\n\n");
 }
 

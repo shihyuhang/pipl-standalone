@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --test"
+    "test": "node --test",
+    "test:ai": "node scripts/ai-smoke.ts"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
