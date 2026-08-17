@@ -115,11 +115,36 @@ export interface BusinessDocument {
   scope: string;
   description: string;
   audience: string;
+  audienceGroup: MaterialAudienceGroup;
   activityIds: string[];
   metadata: DocumentMetadata;
+  healthStatus: DocumentHealthStatus;
+  reviewReason: string;
+  reviewDueAt: string | null;
+  updatedAt: string;
+  pendingImpacts?: DocumentChangeImpact[];
   currentVersionId: string | null;
   currentVersion?: DocumentVersion | null;
   versions?: DocumentVersion[];
+}
+
+export type MaterialAudienceGroup = "consumer" | "business_contact" | "employee" | "candidate" | "visitor" | "internal";
+
+export type DocumentHealthStatus = "unpublished" | "current" | "needs_review" | "updating" | "pending_approval" | "overdue" | "archived";
+
+export interface DocumentChangeImpact {
+  id: string;
+  documentId: string;
+  sourceType: "activity_change" | "enterprise_change" | "manual";
+  sourceId: string | null;
+  changedFields: string[];
+  reason: string;
+  affectedSections: string[];
+  status: "open" | "draft_created" | "no_change" | "deferred" | "resolved";
+  resolutionNote: string;
+  dueAt: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
 }
 
 export interface DocumentMetadata {
@@ -127,16 +152,59 @@ export interface DocumentMetadata {
   modules: string[];
   generationBasis: string;
   generatedAt: string;
+  requirementLevel?: "basic" | "conditional" | "evidence";
+  trigger?: string;
+  legalBasis?: string;
+  generationMethod?: "ai" | "template";
+  aiProvider?: string;
+  aiModel?: string;
+  aiPromptVersion?: string;
+  aiRemoteRunId?: string | null;
+  aiFallbackReason?: string;
+  pendingFacts?: string[];
+  aiRedactionCount?: number;
+  aiExcludedFields?: string[];
+  aiPreviewConfirmedAt?: string;
+}
+
+export type MaterialAiProvider = "auto" | "deepseek" | "qwen" | "kimi" | "custom" | "disabled";
+
+export interface MaterialAiConfiguration {
+  provider: MaterialAiProvider;
+  apiBaseUrl: string;
+  model: string;
+  hasApiKey: boolean;
+  updatedAt: string | null;
+}
+
+export interface MaterialAiRuntimeConfiguration {
+  provider: Exclude<MaterialAiProvider, "auto" | "disabled">;
+  apiBaseUrl: string;
+  model: string;
+  apiKey: string;
 }
 
 export interface DocumentVersion {
   id: string;
   documentId: string;
   versionNumber: string;
-  status: "draft" | "under_review" | "effective" | "superseded" | "archived";
+  status: "draft" | "under_review" | "approved" | "effective" | "superseded" | "archived";
   content: string;
   changeSummary: string;
+  sourceVersionId: string | null;
+  contentHash: string;
+  factsSnapshot: Record<string, unknown>;
+  createdBy: string;
   createdAt: string;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  reviewNote: string;
+  approvedBy: string;
+  approverRole: string;
+  approvedAt: string | null;
+  publishedBy: string;
+  publishChannel: string;
+  publicationEvidence: string;
   publishedAt: string | null;
 }
 
@@ -193,6 +261,10 @@ export interface AuditItemDefinition {
   question: string;
   help: string;
   evidenceExamples: string[];
+  /** 官方自查表该事项的引导语原文（附件1）。 */
+  officialIntro?: string;
+  /** 官方审查子项原文，顺序与官方（一）（二）（三）一致。 */
+  officialSubItems?: string[];
 }
 
 export interface AuditSignal {

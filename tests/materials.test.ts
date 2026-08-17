@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { generateMaterialDraft } from "../src/lib/materials.ts";
+import { generateMaterialDraft, materialCatalog } from "../src/lib/materials.ts";
 import type { EnterpriseProfile, ProcessingActivity } from "../src/lib/types.ts";
 
 const enterprise: EnterpriseProfile = {
@@ -47,4 +47,44 @@ test("处理活动清单按场景输出信息、目的、系统和接收方", ()
   assert.match(result, /业务经办人员/);
   assert.match(result, /按季度核对并删除/);
   assert.match(result, /privacy@example.com/);
+});
+
+test("员工告知与候选人告知使用不同的处理范围说明", () => {
+  const employee = generateMaterialDraft({ type: "employee_notice", name: "员工个人信息告知", scope: "员工管理", audience: "员工", enterprise, activities: [activity] });
+  const candidate = generateMaterialDraft({ type: "candidate_notice", name: "候选人个人信息告知", scope: "招聘管理", audience: "候选人", enterprise, activities: [activity] });
+
+  assert.match(employee, /建立和履行劳动关系/);
+  assert.doesNotMatch(employee, /简历收集、候选人筛选/);
+  assert.match(candidate, /简历收集、候选人筛选/);
+  assert.doesNotMatch(candidate, /建立和履行劳动关系/);
+});
+
+test("委托处理协议形成处理边界、安全事件和删除要求", () => {
+  const result = generateMaterialDraft({
+    type: "processor_agreement", name: "个人信息委托处理协议", scope: "CRM云服务",
+    audience: "云服务商", enterprise, activities: [activity]
+  });
+  assert.match(result, /仅按甲方书面指示/);
+  assert.match(result, /客户与供应商联系/);
+  assert.match(result, /返还、删除和证明/);
+  assert.match(result, /安全事件/);
+});
+
+test("权利请求、同意和事件记录均提供可直接使用的留痕字段", () => {
+  const rights = generateMaterialDraft({ type: "rights_request_register", name: "权利请求记录", scope: "全部请求", audience: "内部", enterprise, activities: [activity] });
+  const consent = generateMaterialDraft({ type: "consent_record", name: "同意记录", scope: "单独同意", audience: "内部", enterprise, activities: [activity] });
+  const incident = generateMaterialDraft({ type: "incident_record", name: "事件记录", scope: "安全事件", audience: "内部", enterprise, activities: [activity] });
+  assert.match(rights, /身份核验/);
+  assert.match(rights, /答复时间和方式/);
+  assert.match(consent, /对应告知材料名称和版本/);
+  assert.match(consent, /撤回时间/);
+  assert.match(incident, /事件时间线|事件基本信息/);
+  assert.match(incident, /通知和报告/);
+});
+
+test("材料目录标明基础、条件触发或留痕属性及主要法规依据", () => {
+  assert.ok(materialCatalog.length >= 18);
+  assert.ok(materialCatalog.every(item => item.requirement));
+  assert.ok(materialCatalog.every(item => item.legalBasis));
+  assert.equal(materialCatalog.find(item => item.code === "sensitive_consent")?.requirement, "conditional");
 });

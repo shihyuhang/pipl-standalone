@@ -99,6 +99,24 @@ export default function SelfAuditPage() {
   </>;
 }
 
+const CN_NUMERALS = ["（一）", "（二）", "（三）", "（四）", "（五）", "（六）", "（七）", "（八）", "（九）", "（十）", "（十一）", "（十二）"];
+
+const officialConclusionLabels: Record<AuditConclusion, string> = {
+  unanswered: "未判断", compliant: "合规", non_compliant: "不合规", not_applicable: "不适用"
+};
+
 function OfficialAuditPrint({ instance }: { instance: AuditInstance }) {
-  return <section className="official-print audit-print"><h1>小型个人信息处理者个人信息保护合规审计自查表</h1><p>自查记录：{instance.title}　状态：{instance.status === "signed" ? "已确认归档" : "工作底稿"}</p><table><thead><tr><th>序号</th><th>审计事项</th><th>结论</th><th>说明及整改情况</th></tr></thead><tbody>{instance.responses?.map(item => <tr key={item.itemCode}><td>{item.definition.number}</td><td>{item.definition.title}</td><td>{conclusionLabels[item.conclusion]}</td><td>{item.explanation || item.evidenceNote || "—"}</td></tr>)}</tbody></table><footer>负责人：{instance.responsibleName || "____________"}　角色：{instance.responsibleRole || "____________"}　日期：{instance.signedAt ? new Date(instance.signedAt).toLocaleDateString("zh-CN") : "____________"}</footer></section>;
+  return <section className="official-print audit-print">
+    <h1>小型个人信息处理者个人信息保护合规审计自查表</h1>
+    <p className="print-meta">自查记录：{instance.title}　状态：{instance.status === "signed" ? "已确认归档" : "工作底稿"}</p>
+    <table><thead><tr><th className="col-no">序号</th><th className="col-item">合规审计事项</th><th className="col-conclusion">合规情况自查</th><th className="col-note">不合规及整改情况说明</th></tr></thead>
+      <tbody>{instance.responses?.map(item => <tr key={item.itemCode}>
+        <td className="col-no">{item.definition.number}</td>
+        <td className="col-item"><p className="official-intro">{item.definition.officialIntro || item.definition.title}</p>{item.definition.officialSubItems && item.definition.officialSubItems.length > 0 && <ol className="official-subitems">{item.definition.officialSubItems.map((text, index) => <li key={`${item.itemCode}-${index}`}><span className="subitem-no">{CN_NUMERALS[index]}</span><span>{text}</span></li>)}</ol>}</td>
+        <td className="col-conclusion">{officialConclusionLabels[item.conclusion]}</td>
+        <td className="col-note">{item.conclusion === "non_compliant" || item.conclusion === "not_applicable" ? item.explanation || "—" : item.explanation || item.evidenceNote || "—"}</td>
+      </tr>)}</tbody></table>
+    <p className="print-declare">本人已对上述事项进行了合规审计，并如实填写合规审计情况，如有不实，承担相应法律责任。</p>
+    <footer>合规审计负责人签字：{instance.responsibleName || "____________"}　　日期：{instance.signedAt ? new Date(instance.signedAt).toLocaleDateString("zh-CN") : "____________"}</footer>
+  </section>;
 }

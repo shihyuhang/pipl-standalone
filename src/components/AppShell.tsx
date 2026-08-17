@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Archive, Building2, ClipboardCheck, FileText, Home, Menu, ShieldCheck, X } from "lucide-react";
+import { Archive, Bot, Building2, ClipboardCheck, FileText, Home, Menu, ShieldCheck, X } from "lucide-react";
 import { useState } from "react";
 
 const navigation = [
@@ -11,7 +11,8 @@ const navigation = [
   { href: "/compliance-check", label: "合规检查", icon: ShieldCheck, related: ["/assessments", "/self-audit", "/impact-assessments"] },
   { href: "/documents", label: "合规材料", icon: FileText },
   { href: "/tasks", label: "办理事项", icon: ClipboardCheck },
-  { href: "/records", label: "记录与导出", icon: Archive }
+  { href: "/records", label: "记录与导出", icon: Archive },
+  { href: "/settings/ai", label: "AI 设置", icon: Bot }
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

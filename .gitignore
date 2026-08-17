@@ -8,5 +8,6 @@ tmp/
 .env.local
 data/*.db
 data/*.db-*
+data/.credentials.key
 *.log
 *.tsbuildinfo

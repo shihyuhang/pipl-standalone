@@ -1,12 +1,14 @@
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { createHash, randomUUID } from "node:crypto";
-import type { ActivityFacts, AssessmentFinding, AssessmentRun, AuditConclusion, AuditInstance, AuditResponse, AuditEvent, BusinessDocument, DashboardData, DocumentMetadata, DocumentVersion, EnterpriseProfile, FormStatus, ImpactAnswer, PipiaCategoryCode, PipiaInstance, PipiaResponse, ProcessingActivity, TaskItem, YesNoNA } from "./types";
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
+import type { ActivityFacts, AssessmentFinding, AssessmentRun, AuditConclusion, AuditInstance, AuditResponse, AuditEvent, BusinessDocument, DashboardData, DocumentChangeImpact, DocumentMetadata, DocumentVersion, EnterpriseProfile, FormStatus, ImpactAnswer, MaterialAiConfiguration, MaterialAiProvider, MaterialAiRuntimeConfiguration, MaterialAudienceGroup, PipiaCategoryCode, PipiaInstance, PipiaResponse, ProcessingActivity, TaskItem, YesNoNA } from "./types";
 import { activityFactsCompleteness, emptyActivityFacts, normalizeActivityFacts } from "./activity-facts.ts";
 import { auditItems, buildAuditSignals } from "./audit-template.ts";
 import { buildSystemTaskRules } from "./task-rules.ts";
 import { normalizeChinaLegalText, normalizeTriageFinding } from "./legal-language.ts";
+import { changedActivityFactFields, changedEnterpriseFields, describeActivityImpact, describeEnterpriseImpact } from "./document-impact.ts";
+import { inferMaterialAudienceGroup } from "./material-audience.ts";
 
 const databasePath = resolve(process.cwd(), process.env.PIPL_DATABASE_PATH || "./data/pipl-mvp.db");
 mkdirSync(dirname(databasePath), { recursive: true });
@@ -38,13 +40,28 @@ const schemaSql = `
   );
   CREATE UNIQUE INDEX IF NOT EXISTS task_code_open_idx ON task(code) WHERE status != 'completed';
   CREATE TABLE IF NOT EXISTS business_document (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, scope TEXT NOT NULL DEFAULT '', current_version_id TEXT
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, scope TEXT NOT NULL DEFAULT '', current_version_id TEXT,
+    audience_group TEXT NOT NULL DEFAULT '',
+    health_status TEXT NOT NULL DEFAULT 'unpublished', review_reason TEXT NOT NULL DEFAULT '', review_due_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT ''
   );
   CREATE TABLE IF NOT EXISTS document_version (
     id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES business_document(id), version_number TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'draft', content TEXT NOT NULL DEFAULT '', change_summary TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL, published_at TEXT
+    created_at TEXT NOT NULL, published_at TEXT, source_version_id TEXT, content_hash TEXT NOT NULL DEFAULT '',
+    facts_snapshot_json TEXT NOT NULL DEFAULT '{}', created_by TEXT NOT NULL DEFAULT '', submitted_at TEXT,
+    reviewed_at TEXT, review_note TEXT NOT NULL DEFAULT '', approved_by TEXT NOT NULL DEFAULT '',
+    approver_role TEXT NOT NULL DEFAULT '', approved_at TEXT, published_by TEXT NOT NULL DEFAULT '',
+    publish_channel TEXT NOT NULL DEFAULT '', publication_evidence TEXT NOT NULL DEFAULT ''
   );
+  CREATE UNIQUE INDEX IF NOT EXISTS document_one_effective_idx ON document_version(document_id) WHERE status='effective';
+  CREATE TABLE IF NOT EXISTS document_change_impact (
+    id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES business_document(id), source_type TEXT NOT NULL,
+    source_id TEXT, changed_fields_json TEXT NOT NULL DEFAULT '[]', reason TEXT NOT NULL,
+    affected_sections_json TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'open',
+    resolution_note TEXT NOT NULL DEFAULT '', due_at TEXT, created_at TEXT NOT NULL, resolved_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS document_impact_open_idx ON document_change_impact(document_id, status, created_at DESC);
   CREATE TABLE IF NOT EXISTS audit_event (
     id TEXT PRIMARY KEY, action TEXT NOT NULL, summary TEXT NOT NULL, created_at TEXT NOT NULL
   );
@@ -87,6 +104,10 @@ const schemaSql = `
     evidence_note TEXT NOT NULL DEFAULT '', task_id TEXT, updated_at TEXT NOT NULL,
     UNIQUE(instance_id, category_code)
   );
+  CREATE TABLE IF NOT EXISTS ai_configuration (
+    purpose TEXT PRIMARY KEY, provider TEXT NOT NULL DEFAULT 'auto', api_base_url TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '', api_key_ciphertext TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL
+  );
 `;
 
 const now = () => new Date().toISOString();
@@ -114,11 +135,71 @@ function getDb(): DatabaseSync {
   ensureColumn(instance, "task", "completion_basis", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(instance, "business_document", "description", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(instance, "business_document", "audience", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "business_document", "audience_group", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(instance, "business_document", "activity_ids_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(instance, "business_document", "metadata_json", "TEXT NOT NULL DEFAULT '{}'");
+  ensureColumn(instance, "business_document", "health_status", "TEXT NOT NULL DEFAULT 'unpublished'");
+  ensureColumn(instance, "business_document", "review_reason", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "business_document", "review_due_at", "TEXT");
+  ensureColumn(instance, "business_document", "updated_at", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "document_version", "source_version_id", "TEXT");
+  ensureColumn(instance, "document_version", "content_hash", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "document_version", "facts_snapshot_json", "TEXT NOT NULL DEFAULT '{}'");
+  ensureColumn(instance, "document_version", "created_by", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "document_version", "submitted_at", "TEXT");
+  ensureColumn(instance, "document_version", "reviewed_at", "TEXT");
+  ensureColumn(instance, "document_version", "review_note", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "document_version", "approved_by", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "document_version", "approver_role", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "document_version", "approved_at", "TEXT");
+  ensureColumn(instance, "document_version", "published_by", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "document_version", "publish_channel", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "document_version", "publication_evidence", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(instance, "audit_instance", "context_snapshot_json", "TEXT NOT NULL DEFAULT '{}'");
   ensureColumn(instance, "pipia_instance", "context_snapshot_json", "TEXT NOT NULL DEFAULT '{}'");
   ensureColumn(instance, "pipia_response", "task_id", "TEXT");
+  instance.prepare("UPDATE business_document SET updated_at=? WHERE updated_at='' OR updated_at IS NULL").run(now());
+  const unclassifiedDocuments = instance.prepare("SELECT id, type FROM business_document WHERE audience_group='' OR audience_group IS NULL").all() as { id: string; type: string }[];
+  for (const document of unclassifiedDocuments) {
+    instance.prepare("UPDATE business_document SET audience_group=? WHERE id=?").run(inferMaterialAudienceGroup(document.type), document.id);
+  }
+  const legacyEmployeeDocuments = instance.prepare("SELECT id, name, activity_ids_json, current_version_id FROM business_document WHERE type='employee_notice'").all() as Array<{ id: string; name: string; activity_ids_json: string; current_version_id: string | null }>;
+  for (const document of legacyEmployeeDocuments) {
+    const activityIds = parseArray(document.activity_ids_json);
+    const candidateIds = activityIds.filter(activityId => {
+      const activity = instance.prepare("SELECT scenario_code, facts_json FROM processing_activity WHERE id=?").get(activityId) as { scenario_code: string; facts_json: string } | undefined;
+      if (!activity) return false;
+      let subjects = "";
+      try { subjects = (JSON.parse(activity.facts_json).dataSubjects || []).join("、"); } catch { subjects = ""; }
+      return /HR-RECRUIT|RECRUITMENT/.test(activity.scenario_code) || /求职|候选人|应聘|招聘对象/.test(subjects);
+    });
+    if (!candidateIds.length) continue;
+    const retainedIds = activityIds.filter(activityId => !candidateIds.includes(activityId));
+    const timestamp = now();
+    const reason = "员工与候选人材料已拆分：原材料中的招聘场景需要改由候选人个人信息告知覆盖。";
+    instance.prepare("UPDATE business_document SET activity_ids_json=?, health_status=?, review_reason=?, updated_at=? WHERE id=?")
+      .run(JSON.stringify(retainedIds), document.current_version_id ? "needs_review" : "updating", reason, timestamp, document.id);
+    instance.prepare(`INSERT INTO document_change_impact
+      (id, document_id, source_type, source_id, changed_fields_json, reason, affected_sections_json, status, resolution_note, due_at, created_at, resolved_at)
+      VALUES (?, ?, 'manual', NULL, ?, ?, ?, 'open', '', NULL, ?, NULL)`)
+      .run(randomUUID(), document.id, JSON.stringify(["audienceGroup", "activityIds"]), reason, JSON.stringify(["适用对象和范围", "我们怎样处理个人信息"]), timestamp);
+  }
+  const legacyVersions = instance.prepare("SELECT id, content FROM document_version WHERE content_hash='' OR content_hash IS NULL").all() as { id: string; content: string }[];
+  for (const version of legacyVersions) instance.prepare("UPDATE document_version SET content_hash=? WHERE id=?").run(hashContent(version.content), version.id);
+  instance.prepare("UPDATE business_document SET health_status=CASE WHEN current_version_id IS NULL THEN 'unpublished' ELSE 'current' END WHERE health_status='' OR health_status IS NULL").run();
+  const staleHealthDocuments = instance.prepare(`SELECT d.id, d.current_version_id, d.health_status FROM business_document d
+    WHERE (d.current_version_id IS NOT NULL AND d.health_status='unpublished')
+       OR (d.current_version_id IS NULL AND d.health_status NOT IN ('unpublished','updating'))`).all() as { id: string; current_version_id: string | null; health_status: string }[];
+  for (const row of staleHealthDocuments) {
+    let corrected: string;
+    if (!row.current_version_id) corrected = "unpublished";
+    else {
+      const hasActiveDraft = instance.prepare("SELECT 1 FROM document_version WHERE document_id=? AND status IN ('draft','under_review','approved') LIMIT 1").get(row.id);
+      corrected = hasActiveDraft ? "updating" : "current";
+    }
+    instance.prepare("UPDATE business_document SET health_status=?, updated_at=? WHERE id=?").run(corrected, now(), row.id);
+    console.warn(`[pipl] 材料健康状态修正：${row.id} ${row.health_status} -> ${corrected}`);
+  }
   const existing = instance.prepare("SELECT id FROM enterprise LIMIT 1").get();
   if (!existing) instance.prepare("INSERT INTO enterprise (id, updated_at) VALUES (?, ?)").run(randomUUID(), now());
   globalForDb.piplDb = instance;
@@ -128,6 +209,76 @@ function getDb(): DatabaseSync {
 function ensureColumn(instance: DatabaseSync, table: string, name: string, definition: string) {
   const columns = instance.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   if (!columns.some(column => column.name === name)) instance.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+}
+
+const hashContent = (content: string) => createHash("sha256").update(content).digest("hex");
+
+function buildDocumentFactsSnapshot(activityIds: string[]): Record<string, unknown> {
+  return {
+    capturedAt: now(),
+    enterprise: getEnterprise(),
+    activities: activityIds.map(getActivity).filter(Boolean)
+  };
+}
+
+function createDocumentImpact(input: {
+  documentId: string;
+  sourceType: DocumentChangeImpact["sourceType"];
+  sourceId?: string | null;
+  changedFields: string[];
+  reason: string;
+  affectedSections: string[];
+}) {
+  const db = getDb();
+  const document = db.prepare("SELECT current_version_id FROM business_document WHERE id=?").get(input.documentId) as { current_version_id: string | null } | undefined;
+  if (!document?.current_version_id) return;
+  const duplicate = db.prepare(`SELECT id FROM document_change_impact
+    WHERE document_id=? AND source_type=? AND COALESCE(source_id,'')=COALESCE(?,'') AND status IN ('open','draft_created','deferred')
+    ORDER BY created_at DESC LIMIT 1`).get(input.documentId, input.sourceType, input.sourceId || null);
+  if (!duplicate) db.prepare(`INSERT INTO document_change_impact
+    (id, document_id, source_type, source_id, changed_fields_json, reason, affected_sections_json, status, resolution_note, due_at, created_at, resolved_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'open', '', NULL, ?, NULL)`).run(
+      randomUUID(), input.documentId, input.sourceType, input.sourceId || null, JSON.stringify(input.changedFields), input.reason,
+      JSON.stringify(input.affectedSections), now()
+    );
+  else db.prepare(`UPDATE document_change_impact SET changed_fields_json=?, reason=?, affected_sections_json=?,
+    status='open', resolution_note='', due_at=NULL, created_at=?, resolved_at=NULL WHERE id=?`).run(
+      JSON.stringify(input.changedFields), input.reason, JSON.stringify(input.affectedSections), now(), String((duplicate as { id: string }).id)
+    );
+  db.prepare(`UPDATE document_version SET status='draft', submitted_at=NULL, reviewed_at=NULL,
+    review_note='业务事实发生变化，请重新核对后发布。', approved_by='', approver_role='', approved_at=NULL
+    WHERE document_id=? AND status IN ('under_review','approved')`).run(input.documentId);
+  recalculateDocumentHealth(input.documentId);
+}
+
+function markDocumentsForActivityChange(activityId: string, reason: string, changedFields: string[], affectedSections: string[]) {
+  const rows = getDb().prepare("SELECT id, activity_ids_json FROM business_document").all() as Record<string, unknown>[];
+  for (const row of rows) {
+    if (parseArray(row.activity_ids_json).includes(activityId)) createDocumentImpact({
+      documentId: String(row.id), sourceType: "activity_change", sourceId: activityId, changedFields, reason, affectedSections
+    });
+  }
+}
+
+function markDocumentsForEnterpriseChange(reason: string, changedFields: string[], affectedSections: string[]) {
+  const rows = getDb().prepare("SELECT id FROM business_document").all() as { id: string }[];
+  for (const row of rows) createDocumentImpact({
+    documentId: row.id, sourceType: "enterprise_change", sourceId: getEnterprise().id, changedFields, reason, affectedSections
+  });
+}
+
+function recalculateDocumentHealth(documentId: string) {
+  const db = getDb();
+  const document = db.prepare("SELECT current_version_id FROM business_document WHERE id=?").get(documentId) as { current_version_id: string | null } | undefined;
+  if (!document) return;
+  let health = document.current_version_id ? "current" : "unpublished";
+  const openImpact = db.prepare("SELECT reason, due_at FROM document_change_impact WHERE document_id=? AND status IN ('open','deferred') ORDER BY created_at DESC LIMIT 1").get(documentId) as { reason: string; due_at: string | null } | undefined;
+  const activeVersion = db.prepare("SELECT status FROM document_version WHERE document_id=? AND status IN ('draft','under_review','approved') ORDER BY created_at DESC LIMIT 1").get(documentId) as { status: string } | undefined;
+  if (openImpact) health = openImpact.due_at && openImpact.due_at < now() ? "overdue" : "needs_review";
+  if (activeVersion?.status === "draft") health = "updating";
+  if (activeVersion?.status === "under_review" || activeVersion?.status === "approved") health = "updating";
+  db.prepare("UPDATE business_document SET health_status=?, review_reason=?, updated_at=? WHERE id=?")
+    .run(health, openImpact?.reason || "", now(), documentId);
 }
 
 export function getEnterprise(): EnterpriseProfile {
@@ -148,6 +299,7 @@ export function getEnterprise(): EnterpriseProfile {
 
 export function updateEnterprise(profile: Omit<EnterpriseProfile, "id" | "updatedAt">): EnterpriseProfile {
   const current = getEnterprise();
+  const impactFields = changedEnterpriseFields(current, profile);
   getDb().prepare(`UPDATE enterprise SET legal_name=?, org_type=?, industry=?, business_model=?, ownership=?, processing_role=?,
     person_count=?, count_verified=?, subject_categories=?, sensitive_categories=?, minors_possible=?, cross_border=?,
     privacy_contact_name=?, privacy_contact_role=?, privacy_contact_channel=?, qualification_status=?,
@@ -158,6 +310,10 @@ export function updateEnterprise(profile: Omit<EnterpriseProfile, "id" | "update
       profile.privacyContactName, profile.privacyContactRole, profile.privacyContactChannel,
       profile.qualificationStatus, profile.qualificationSummary, profile.onboardingCompleted ? 1 : 0, now(), current.id
     );
+  if (impactFields.length) {
+    const impact = describeEnterpriseImpact(impactFields);
+    markDocumentsForEnterpriseChange(impact.reason, impact.changedFields, impact.affectedSections);
+  }
   return getEnterprise();
 }
 
@@ -183,7 +339,9 @@ function reconcileSystemTasks() {
     const activity = mapActivity(row);
     return { id: activity.id, name: activity.name, completeness: activity.completeness };
   });
-  const externalNoticeCount = Number((db.prepare("SELECT COUNT(*) AS value FROM business_document WHERE type IN ('privacy_notice','b2b_contact_notice','employee_notice')").get() as { value: number }).value);
+  const externalNoticeCount = Number((db.prepare(`SELECT COUNT(*) AS value FROM business_document d
+    JOIN document_version v ON v.id=d.current_version_id AND v.document_id=d.id AND v.status='effective'
+    WHERE d.type IN ('privacy_notice','b2b_contact_notice','employee_notice')`).get() as { value: number }).value);
   const rules = buildSystemTaskRules({
     onboardingCompleted: enterprise.onboardingCompleted, personCount: enterprise.personCount, countVerified: enterprise.countVerified,
     processingRole: enterprise.processingRole, sensitiveCategories: enterprise.sensitiveCategories, minorsPossible: enterprise.minorsPossible,
@@ -329,8 +487,8 @@ export function updateActivityFacts(id: string, input: ActivityFacts): Processin
   if (!current) return null;
   const facts = normalizeActivityFacts(input);
   const completeness = activityFactsCompleteness(facts);
-  const withoutConfirmation = (value: ActivityFacts) => ({ ...value, confirmedAt: null });
-  const changed = JSON.stringify(withoutConfirmation(current.facts)) !== JSON.stringify(withoutConfirmation(facts));
+  const changedFields = changedActivityFactFields(current.facts, facts);
+  const changed = changedFields.length > 0;
   facts.confirmedAt = completeness === 1 ? (changed ? now() : current.facts.confirmedAt || now()) : null;
   getDb().prepare("UPDATE processing_activity SET facts_json=?, completeness=? WHERE id=?")
     .run(JSON.stringify(facts), completeness, id);
@@ -344,63 +502,245 @@ export function updateActivityFacts(id: string, input: ActivityFacts): Processin
       completion_mode='automatic', completion_basis=? WHERE code=? AND status!='completed'`)
       .run(timestamp, timestamp, completionBasis, completionBasis, `COMPLETE-${id}`);
   }
-  if (changed) addAuditEvent("activity.facts.updated", completeness === 1 ? `完成业务场景事实确认：${current.name}` : `保存业务场景进度：${current.name}`);
+  if (changed) {
+    const impact = describeActivityImpact(current.name, changedFields);
+    markDocumentsForActivityChange(id, impact.reason, impact.changedFields, impact.affectedSections);
+    addAuditEvent("activity.facts.updated", completeness === 1 ? `完成业务场景事实确认：${current.name}` : `保存业务场景进度：${current.name}`);
+  }
   return getActivity(id);
 }
 
-export function createDocument(input: { name: string; type: string; scope: string; description?: string; audience?: string; activityIds?: string[]; metadata?: DocumentMetadata; content: string; changeSummary?: string }): BusinessDocument {
-  const documentId = randomUUID(); const versionId = randomUUID();
+export function createDocument(input: { name: string; type: string; scope: string; audienceGroup?: MaterialAudienceGroup; description?: string; audience?: string; activityIds?: string[]; metadata?: DocumentMetadata; content: string; changeSummary?: string }): BusinessDocument {
+  const documentId = randomUUID(); const versionId = randomUUID(); const createdAt = now();
+  const activityIds = input.activityIds || [];
   getDb().prepare(`INSERT INTO business_document
-    (id, name, type, scope, current_version_id, description, audience, activity_ids_json, metadata_json)
-    VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)`)
-    .run(documentId, input.name, input.type, input.scope, input.description || "", input.audience || "", JSON.stringify(input.activityIds || []), JSON.stringify(input.metadata || {}));
-  getDb().prepare("INSERT INTO document_version VALUES (?, ?, 'v0.1', 'draft', ?, ?, ?, NULL)").run(versionId, documentId, input.content, input.changeSummary || "建立首个草稿", now());
+    (id, name, type, scope, current_version_id, audience_group, description, audience, activity_ids_json, metadata_json,
+     health_status, review_reason, review_due_at, updated_at)
+    VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 'updating', '', NULL, ?)`)
+    .run(documentId, input.name, input.type, input.scope, input.audienceGroup || inferMaterialAudienceGroup(input.type), input.description || "", input.audience || "", JSON.stringify(activityIds), JSON.stringify(input.metadata || {}), createdAt);
+  getDb().prepare(`INSERT INTO document_version
+    (id, document_id, version_number, status, content, change_summary, created_at, published_at, source_version_id,
+     content_hash, facts_snapshot_json, created_by)
+    VALUES (?, ?, 'V1', 'draft', ?, ?, ?, NULL, NULL, ?, ?, '系统生成')`)
+    .run(versionId, documentId, input.content, input.changeSummary || "建立首个草稿", createdAt, hashContent(input.content), JSON.stringify(buildDocumentFactsSnapshot(activityIds)));
   addAuditEvent("document.created", `创建文档草稿：${input.name}`);
   return getDocument(documentId)!;
 }
 
-export function createDocumentVersion(documentId: string, input: { content: string; changeSummary: string }): DocumentVersion {
-  const versions = getDocument(documentId)?.versions || [];
-  const next = `v0.${versions.length + 1}`; const id = randomUUID();
-  getDb().prepare("INSERT INTO document_version VALUES (?, ?, ?, 'draft', ?, ?, ?, NULL)").run(id, documentId, next, input.content, input.changeSummary, now());
-  addAuditEvent("document.version.created", `创建隐私声明版本 ${next}`);
+export function createDocumentVersion(documentId: string, input: { content: string; changeSummary: string; createdBy?: string }): DocumentVersion {
+  const document = getDocument(documentId);
+  if (!document) throw new Error("DOCUMENT_NOT_FOUND");
+  const activeDraft = document.versions?.find(version => ["draft", "under_review", "approved"].includes(version.status));
+  if (activeDraft) throw new Error("ACTIVE_REVISION_EXISTS");
+  const next = `V${(document.versions?.length || 0) + 1}`; const id = randomUUID();
+  const source = document.currentVersion || document.versions?.[0] || null;
+  const content = input.content || source?.content || "";
+  getDb().prepare(`INSERT INTO document_version
+    (id, document_id, version_number, status, content, change_summary, created_at, published_at, source_version_id,
+     content_hash, facts_snapshot_json, created_by)
+    VALUES (?, ?, ?, 'draft', ?, ?, ?, NULL, ?, ?, ?, ?)`)
+    .run(id, documentId, next, content, input.changeSummary, now(), source?.id || null, hashContent(content),
+      JSON.stringify(buildDocumentFactsSnapshot(document.activityIds)), input.createdBy || "材料经办人");
+  getDb().prepare("UPDATE document_change_impact SET status='draft_created' WHERE document_id=? AND status IN ('open','deferred')").run(documentId);
+  recalculateDocumentHealth(documentId);
+  addAuditEvent("document.version.created", `创建材料版本 ${next}：${document.name}`);
   return getVersion(id)!;
 }
 
-export function publishDocumentVersion(documentId: string, versionId: string) {
-  getDb().exec("BEGIN");
-  try {
-    getDb().prepare("UPDATE document_version SET status='superseded' WHERE document_id=? AND status='effective'").run(documentId);
-    getDb().prepare("UPDATE document_version SET status='effective', published_at=? WHERE id=? AND document_id=?").run(now(), versionId, documentId);
-    getDb().prepare("UPDATE business_document SET current_version_id=? WHERE id=?").run(versionId, documentId);
-    getDb().exec("COMMIT");
-    addAuditEvent("document.published", "发布新的隐私声明版本");
-  } catch (error) { getDb().exec("ROLLBACK"); throw error; }
+export function updateDocumentDraft(documentId: string, versionId: string, input: { content: string; changeSummary: string; createdBy?: string }): DocumentVersion {
+  const version = getOwnedVersion(documentId, versionId);
+  if (version.status !== "draft") throw new Error("VERSION_IMMUTABLE");
+  getDb().prepare("UPDATE document_version SET content=?, change_summary=?, content_hash=?, created_by=? WHERE id=? AND document_id=?")
+    .run(input.content, input.changeSummary, hashContent(input.content), input.createdBy || version.createdBy || "材料经办人", versionId, documentId);
+  getDb().prepare("UPDATE business_document SET updated_at=? WHERE id=?").run(now(), documentId);
+  addAuditEvent("document.version.updated", `保存材料草稿 ${version.versionNumber}`);
+  return getVersion(versionId)!;
 }
 
-function getVersion(id: string): DocumentVersion | null {
+export function publishDocumentVersion(documentId: string, versionId: string, input: { publishedBy: string; publishChannel: string; publicationEvidence?: string }): DocumentVersion {
+  const version = getOwnedVersion(documentId, versionId);
+  if (!["draft", "under_review", "approved"].includes(version.status)) throw new Error("VERSION_NOT_PUBLISHABLE");
+  if (version.content.trim().length < 20) throw new Error("INCOMPLETE_DOCUMENT");
+  const db = getDb(); const timestamp = now();
+  db.exec("BEGIN");
+  try {
+    db.prepare("UPDATE document_version SET status='superseded' WHERE document_id=? AND status='effective'").run(documentId);
+    const result = db.prepare(`UPDATE document_version SET status='effective', published_at=?, published_by=?,
+      publish_channel=?, publication_evidence=? WHERE id=? AND document_id=? AND status IN ('draft','under_review','approved')`)
+      .run(timestamp, input.publishedBy, input.publishChannel, input.publicationEvidence || "", versionId, documentId);
+    if (Number(result.changes) !== 1) throw new Error("PUBLISH_FAILED");
+    db.prepare("UPDATE business_document SET current_version_id=?, health_status='current', review_reason='', review_due_at=NULL, updated_at=? WHERE id=?")
+      .run(versionId, timestamp, documentId);
+    db.prepare(`UPDATE document_change_impact SET status='resolved', resolution_note=?, resolved_at=?
+      WHERE document_id=? AND status IN ('open','draft_created','deferred')`).run(`已通过 ${version.versionNumber} 完成修订并发布。`, timestamp, documentId);
+    db.exec("COMMIT");
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
+  addAuditEvent("document.published", `发布材料版本：${version.versionNumber}`);
+  return getVersion(versionId)!;
+}
+
+export function getVersion(id: string): DocumentVersion | null {
   const row = getDb().prepare("SELECT * FROM document_version WHERE id=?").get(id) as Record<string, unknown> | undefined;
   return row ? mapVersion(row) : null;
 }
+function getOwnedVersion(documentId: string, versionId: string): DocumentVersion {
+  const row = getDb().prepare("SELECT * FROM document_version WHERE id=? AND document_id=?").get(versionId, documentId) as Record<string, unknown> | undefined;
+  if (!row) throw new Error("VERSION_NOT_OWNED");
+  return mapVersion(row);
+}
 function mapVersion(row: Record<string, unknown>): DocumentVersion {
-  return { id: String(row.id), documentId: String(row.document_id), versionNumber: String(row.version_number), status: String(row.status) as DocumentVersion["status"], content: String(row.content), changeSummary: String(row.change_summary), createdAt: String(row.created_at), publishedAt: row.published_at ? String(row.published_at) : null };
+  return {
+    id: String(row.id), documentId: String(row.document_id), versionNumber: String(row.version_number),
+    status: String(row.status) as DocumentVersion["status"], content: String(row.content), changeSummary: String(row.change_summary),
+    sourceVersionId: row.source_version_id ? String(row.source_version_id) : null, contentHash: String(row.content_hash || hashContent(String(row.content))),
+    factsSnapshot: parseObject(row.facts_snapshot_json), createdBy: String(row.created_by || ""), createdAt: String(row.created_at),
+    submittedAt: row.submitted_at ? String(row.submitted_at) : null, reviewedAt: row.reviewed_at ? String(row.reviewed_at) : null,
+    reviewNote: String(row.review_note || ""), approvedBy: String(row.approved_by || ""), approverRole: String(row.approver_role || ""),
+    approvedAt: row.approved_at ? String(row.approved_at) : null, publishedBy: String(row.published_by || ""),
+    publishChannel: String(row.publish_channel || ""), publicationEvidence: String(row.publication_evidence || ""),
+    publishedAt: row.published_at ? String(row.published_at) : null
+  };
+}
+
+function mapDocumentImpact(row: Record<string, unknown>): DocumentChangeImpact {
+  return {
+    id: String(row.id), documentId: String(row.document_id), sourceType: String(row.source_type) as DocumentChangeImpact["sourceType"],
+    sourceId: row.source_id ? String(row.source_id) : null, changedFields: parseArray(row.changed_fields_json), reason: String(row.reason),
+    affectedSections: parseArray(row.affected_sections_json), status: String(row.status) as DocumentChangeImpact["status"],
+    resolutionNote: String(row.resolution_note || ""), dueAt: row.due_at ? String(row.due_at) : null,
+    createdAt: String(row.created_at), resolvedAt: row.resolved_at ? String(row.resolved_at) : null
+  };
+}
+
+export function resolveDocumentImpact(documentId: string, impactId: string, input: { action: "no_change" | "defer"; note: string; dueAt?: string | null }): DocumentChangeImpact {
+  const row = getDb().prepare("SELECT * FROM document_change_impact WHERE id=? AND document_id=?").get(impactId, documentId) as Record<string, unknown> | undefined;
+  if (!row) throw new Error("IMPACT_NOT_FOUND");
+  const status = input.action === "defer" ? "deferred" : "no_change";
+  getDb().prepare("UPDATE document_change_impact SET status=?, resolution_note=?, due_at=?, resolved_at=? WHERE id=? AND document_id=?")
+    .run(status, input.note, input.dueAt || null, status === "no_change" ? now() : null, impactId, documentId);
+  recalculateDocumentHealth(documentId);
+  addAuditEvent("document.impact.resolved", status === "no_change" ? `确认材料无需修改：${input.note}` : `暂缓材料复核：${input.note}`);
+  return mapDocumentImpact(getDb().prepare("SELECT * FROM document_change_impact WHERE id=?").get(impactId) as Record<string, unknown>);
 }
 export function getDocument(id: string): BusinessDocument | null {
   const row = getDb().prepare("SELECT * FROM business_document WHERE id=?").get(id) as Record<string, unknown> | undefined;
   if (!row) return null;
   const versions = (getDb().prepare("SELECT * FROM document_version WHERE document_id=? ORDER BY created_at DESC").all(id) as Record<string, unknown>[]).map(mapVersion);
+  const pendingImpacts = (getDb().prepare("SELECT * FROM document_change_impact WHERE document_id=? AND status IN ('open','draft_created','deferred') ORDER BY created_at DESC").all(id) as Record<string, unknown>[]).map(mapDocumentImpact);
   let activityIds: string[] = []; let metadata = {} as DocumentMetadata;
   try { activityIds = JSON.parse(String(row.activity_ids_json || "[]")); } catch { activityIds = []; }
   try { metadata = JSON.parse(String(row.metadata_json || "{}")); } catch { metadata = {} as DocumentMetadata; }
   return {
     id: String(row.id), name: String(row.name), type: String(row.type), scope: String(row.scope),
-    description: String(row.description || ""), audience: String(row.audience || ""), activityIds, metadata,
+    description: String(row.description || ""), audience: String(row.audience || ""),
+    audienceGroup: (String(row.audience_group || inferMaterialAudienceGroup(String(row.type)))) as MaterialAudienceGroup,
+    activityIds, metadata,
+    healthStatus: String(row.health_status || (row.current_version_id ? "current" : "unpublished")) as BusinessDocument["healthStatus"],
+    reviewReason: String(row.review_reason || ""), reviewDueAt: row.review_due_at ? String(row.review_due_at) : null,
+    updatedAt: String(row.updated_at || ""), pendingImpacts,
     currentVersionId: row.current_version_id ? String(row.current_version_id) : null,
     currentVersion: versions.find(v => v.id === row.current_version_id) || null, versions
   };
 }
 export function listDocuments(): BusinessDocument[] {
   return (getDb().prepare("SELECT id FROM business_document ORDER BY name").all() as { id: string }[]).map(row => getDocument(row.id)!).filter(Boolean);
+}
+
+export function deleteDocument(documentId: string): BusinessDocument {
+  const document = getDocument(documentId);
+  if (!document) throw new Error("DOCUMENT_NOT_FOUND");
+  const publishedCount = (document.versions || []).filter(version => version.publishedAt || ["effective", "superseded", "archived"].includes(version.status)).length;
+  if (publishedCount > 0 || document.currentVersionId) throw new Error("DOCUMENT_HAS_PUBLISHED_VERSION");
+  const db = getDb();
+  db.exec("BEGIN");
+  try {
+    db.prepare("DELETE FROM document_change_impact WHERE document_id=?").run(documentId);
+    db.prepare("DELETE FROM document_version WHERE document_id=?").run(documentId);
+    const result = db.prepare("DELETE FROM business_document WHERE id=?").run(documentId);
+    if (Number(result.changes) !== 1) throw new Error("DELETE_FAILED");
+    db.exec("COMMIT");
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
+  addAuditEvent("document.deleted", `删除未发布材料：${document.name}（${(document.versions || []).length} 个草稿版本）`);
+  return document;
+}
+
+const credentialKeyPath = resolve(dirname(databasePath), ".credentials.key");
+
+function credentialKey(): Buffer {
+  const configuredSecret = String(process.env.PIPL_CREDENTIAL_SECRET || "").trim();
+  if (configuredSecret) return createHash("sha256").update(configuredSecret).digest();
+  if (existsSync(credentialKeyPath)) {
+    const stored = Buffer.from(readFileSync(credentialKeyPath, "utf8").trim(), "base64");
+    if (stored.length === 32) return stored;
+  }
+  const generated = randomBytes(32);
+  writeFileSync(credentialKeyPath, generated.toString("base64"), { encoding: "utf8", mode: 0o600 });
+  return generated;
+}
+
+function encryptCredential(value: string): string {
+  if (!value) return "";
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", credentialKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
+  return ["v1", iv.toString("base64"), cipher.getAuthTag().toString("base64"), encrypted.toString("base64")].join(".");
+}
+
+function decryptCredential(value: string): string {
+  if (!value) return "";
+  try {
+    const [version, iv, tag, encrypted] = value.split(".");
+    if (version !== "v1" || !iv || !tag || !encrypted) return "";
+    const decipher = createDecipheriv("aes-256-gcm", credentialKey(), Buffer.from(iv, "base64"));
+    decipher.setAuthTag(Buffer.from(tag, "base64"));
+    return Buffer.concat([decipher.update(Buffer.from(encrypted, "base64")), decipher.final()]).toString("utf8");
+  } catch { return ""; }
+}
+
+export function getMaterialAiConfiguration(): MaterialAiConfiguration {
+  const row = getDb().prepare("SELECT * FROM ai_configuration WHERE purpose='material_draft'").get() as Record<string, unknown> | undefined;
+  return row ? {
+    provider: String(row.provider) as MaterialAiProvider,
+    apiBaseUrl: String(row.api_base_url || ""),
+    model: String(row.model || ""),
+    hasApiKey: Boolean(row.api_key_ciphertext),
+    updatedAt: String(row.updated_at)
+  } : { provider: "auto", apiBaseUrl: "", model: "", hasApiKey: false, updatedAt: null };
+}
+
+export function getStoredMaterialAiRuntimeConfiguration(): MaterialAiRuntimeConfiguration | null {
+  const row = getDb().prepare("SELECT * FROM ai_configuration WHERE purpose='material_draft'").get() as Record<string, unknown> | undefined;
+  if (!row || ["auto", "disabled"].includes(String(row.provider))) return null;
+  const apiKey = decryptCredential(String(row.api_key_ciphertext || ""));
+  if (!apiKey) return null;
+  return {
+    provider: String(row.provider) as MaterialAiRuntimeConfiguration["provider"],
+    apiBaseUrl: String(row.api_base_url || ""),
+    model: String(row.model || ""),
+    apiKey
+  };
+}
+
+export function saveMaterialAiConfiguration(input: {
+  provider: MaterialAiProvider;
+  apiBaseUrl: string;
+  model: string;
+  apiKey?: string;
+  clearApiKey?: boolean;
+}): MaterialAiConfiguration {
+  const db = getDb(); const timestamp = now();
+  const existing = db.prepare("SELECT provider, api_key_ciphertext FROM ai_configuration WHERE purpose='material_draft'").get() as { provider: string; api_key_ciphertext: string } | undefined;
+  const changedProvider = Boolean(existing && existing.provider !== input.provider);
+  const ciphertext = input.clearApiKey || changedProvider
+    ? (input.apiKey ? encryptCredential(input.apiKey) : "")
+    : input.apiKey ? encryptCredential(input.apiKey) : existing?.api_key_ciphertext || "";
+  db.prepare(`INSERT INTO ai_configuration (purpose, provider, api_base_url, model, api_key_ciphertext, updated_at)
+    VALUES ('material_draft', ?, ?, ?, ?, ?)
+    ON CONFLICT(purpose) DO UPDATE SET provider=excluded.provider, api_base_url=excluded.api_base_url,
+      model=excluded.model, api_key_ciphertext=excluded.api_key_ciphertext, updated_at=excluded.updated_at`)
+    .run(input.provider, input.apiBaseUrl, input.model, ciphertext, timestamp);
+  addAuditEvent("ai.configuration.updated", `更新材料草稿AI配置：${input.provider}`);
+  return getMaterialAiConfiguration();
 }
 
 type AssessmentInput = {

@@ -42,6 +42,26 @@ const factSteps = [
   { number: 4, title: "特别情况", description: "敏感信息、未成年人、境外和自动决策" }
 ];
 
+type FactRequirement = { no: number; step: number; label: string; filled: (facts: ActivityFacts) => boolean };
+const factRequirements: FactRequirement[] = [
+  { no: 1, step: 1, label: "涉及哪些人员", filled: f => f.dataSubjects.length > 0 },
+  { no: 2, step: 1, label: "使用哪些个人信息", filled: f => f.informationTypes.length > 0 },
+  { no: 3, step: 1, label: "大约涉及多少人", filled: f => f.approximatePersonCount !== null },
+  { no: 4, step: 2, label: "为什么需要这些信息", filled: f => f.purposes.length > 0 },
+  { no: 5, step: 2, label: "信息从哪里取得", filled: f => f.collectionChannels.length > 0 },
+  { no: 6, step: 2, label: "信息保存或使用在哪里", filled: f => f.systems.length > 0 },
+  { no: 7, step: 2, label: "是否会交给外部单位", filled: f => f.recipients.length > 0 },
+  { no: 8, step: 3, label: "哪些岗位可以查看或使用", filled: f => f.accessRoles.length > 0 },
+  { no: 9, step: 3, label: "谁负责维护这些系统", filled: f => f.systemOperators.length > 0 },
+  { no: 10, step: 3, label: "通常保存多长时间", filled: f => f.retentionPeriod.trim().length > 0 },
+  { no: 11, step: 3, label: "保存期满后怎样处理", filled: f => f.deletionMethod.trim().length > 0 },
+  { no: 12, step: 3, label: "个人联系渠道", filled: f => f.rightsChannel.trim().length > 0 },
+  { no: 13, step: 4, label: "是否包含敏感个人信息", filled: f => f.sensitiveInformation !== "" },
+  { no: 14, step: 4, label: "是否涉及未成年人", filled: f => f.minorsInvolved !== "" },
+  { no: 15, step: 4, label: "是否可能从境外存储或访问", filled: f => f.crossBorderAccess !== "" },
+  { no: 16, step: 4, label: "是否有自动化决策", filled: f => f.automatedDecision !== "" }
+];
+
 const riskLabels: Record<string, string> = {
   L0: "待补充",
   L1: "建议完善",
@@ -73,6 +93,8 @@ export default function BusinessPage() {
       .catch(() => undefined);
   }, []);
   const existing = useMemo(() => new Set(activities.map(item => item.scenarioCode)), [activities]);
+  const missingFacts = useMemo(() => factRequirements.filter(item => !item.filled(facts)), [facts]);
+  const isMissing = (no: number) => missingFacts.some(item => item.no === no);
 
   const add = async (scenario: Scenario) => {
     setBusy(scenario.code);
@@ -155,9 +177,11 @@ export default function BusinessPage() {
     setBusy("");
   };
 
-  const multiChoice = (field: keyof typeof optionGroups, title: string, help: string) => (
+  const missingTag = (no: number) => isMissing(no) ? <span className="fact-missing-tag">待填</span> : null;
+
+  const multiChoice = (no: number, field: keyof typeof optionGroups, title: string, help: string) => (
     <section className="fact-section">
-      <div className="fact-title"><strong>{title}</strong><span>可多选</span></div>
+      <div className="fact-title"><strong>{title}</strong><span className="fact-title-tags">{missingTag(no)}<span>可多选 · 必填</span></span></div>
       <p>{help}</p>
       <div className="tag-choices">
         {optionGroups[field].map(option => <button type="button" className={(facts[field] as string[]).includes(option) ? "selected" : ""} key={option} onClick={() => toggle(field, option)}>{option}</button>)}
@@ -165,9 +189,9 @@ export default function BusinessPage() {
     </section>
   );
 
-  const answerChoice = (field: "sensitiveInformation" | "minorsInvolved" | "crossBorderAccess" | "automatedDecision", title: string, help: string) => (
+  const answerChoice = (no: number, field: "sensitiveInformation" | "minorsInvolved" | "crossBorderAccess" | "automatedDecision", title: string, help: string) => (
     <section className="fact-section compact-fact">
-      <div><strong>{title}</strong><p>{help}</p></div>
+      <div><strong>{title}{missingTag(no)}</strong><p>{help}</p></div>
       <div className="segmented">
         {answerOptions.map(option => <button type="button" className={facts[field] === option.value ? "selected" : ""} key={option.value} onClick={() => setFacts(current => ({ ...current, [field]: option.value }))}>{option.label}</button>)}
       </div>
@@ -213,34 +237,48 @@ export default function BusinessPage() {
       <div className="fact-step-content">
         {factStep === 1 && <>
           <div className="fact-step-heading"><span>第 1 步</span><h3>这项业务涉及谁和哪些信息？</h3><p>先记录业务范围，不需要使用法律术语。</p></div>
-          {multiChoice("dataSubjects", "1. 这项业务涉及哪些人员？", "例如企业客户联系人、员工或访客。")}
-          {multiChoice("informationTypes", "2. 会使用哪些个人信息？", "只选择这项业务实际需要的信息类型。")}
-          <section className="fact-section"><div className="fact-title"><strong>3. 这项业务大约涉及多少人？</strong><span>必填</span></div><p>填写当前大致人数即可；同一个人不要因为出现在多个系统中重复计算。</p><input className="fact-input" type="number" min="0" step="1" value={facts.approximatePersonCount ?? ""} onChange={event => setFacts(current => ({ ...current, approximatePersonCount: event.target.value === "" ? null : Number(event.target.value) }))} placeholder="例如：80" /></section>
+          {multiChoice(1, "dataSubjects", "1. 这项业务涉及哪些人员？", "例如企业客户联系人、员工或访客。")}
+          {multiChoice(2, "informationTypes", "2. 会使用哪些个人信息？", "只选择这项业务实际需要的信息类型。")}
+          <section className="fact-section"><div className="fact-title"><strong>3. 这项业务大约涉及多少人？</strong><span className="fact-title-tags">{missingTag(3)}<span>必填</span></span></div><p>填写当前大致人数即可；同一个人不要因为出现在多个系统中重复计算。</p><input className="fact-input" type="number" min="0" step="1" value={facts.approximatePersonCount ?? ""} onChange={event => setFacts(current => ({ ...current, approximatePersonCount: event.target.value === "" ? null : Number(event.target.value) }))} placeholder="例如：80" /></section>
         </>}
         {factStep === 2 && <>
           <div className="fact-step-heading"><span>第 2 步</span><h3>这些信息怎样进入和使用？</h3><p>确认目的、来源、保存位置和外部接收方。</p></div>
-          {multiChoice("purposes", "4. 为什么需要这些信息？", "选择最直接、具体的业务目的。")}
-          {multiChoice("collectionChannels", "5. 信息从哪里取得？", "确认由本人提供、其他企业提供，还是由设备采集。")}
-          {multiChoice("systems", "6. 信息保存或使用在哪里？", "包括云端系统、本地表格、邮箱和纸质材料。")}
-          {multiChoice("recipients", "7. 是否会交给外部单位？", "服务商受托处理也需要选择；完全不提供时选择第一项。")}
+          {multiChoice(4, "purposes", "4. 为什么需要这些信息？", "选择最直接、具体的业务目的。")}
+          {multiChoice(5, "collectionChannels", "5. 信息从哪里取得？", "确认由本人提供、其他企业提供，还是由设备采集。")}
+          {multiChoice(6, "systems", "6. 信息保存或使用在哪里？", "包括云端系统、本地表格、邮箱和纸质材料。")}
+          {multiChoice(7, "recipients", "7. 是否会交给外部单位？", "服务商受托处理也需要选择；完全不提供时选择第一项。")}
         </>}
         {factStep === 3 && <>
           <div className="fact-step-heading"><span>第 3 步</span><h3>单位内部怎样管理？</h3><p>这些安排会直接进入合规材料和后续办理事项。</p></div>
-          {multiChoice("accessRoles", "8. 单位内哪些岗位可以查看或使用？", "选择实际能够接触这些信息的岗位；暂时没有分清权限时可选“不清楚”。")}
-          {multiChoice("systemOperators", "9. 谁负责维护保存这些信息的系统？", "例如本单位管理员、云服务商或外包人员；只有纸质材料且无人专门运维时，可选“不涉及专门运维”。")}
-          <section className="fact-section"><div className="fact-title"><strong>10. 通常保存多长时间？</strong><span>必填</span></div><p>可以先用业务语言描述，例如“合作期间，结束后保留3年”。</p><input className="fact-input" value={facts.retentionPeriod} onChange={event => setFacts(current => ({ ...current, retentionPeriod: event.target.value }))} placeholder="请输入保存期限或删除条件" /></section>
-          <section className="fact-section"><div className="fact-title"><strong>11. 保存期满后实际怎样处理？</strong><span>必填</span></div><p>说明由谁、在什么系统中、按什么方式删除、匿名化或限制继续使用。</p><textarea className="fact-input fact-notes" value={facts.deletionMethod} onChange={event => setFacts(current => ({ ...current, deletionMethod: event.target.value }))} placeholder="例如：每季度由行政负责人核对到期记录，并在邮箱和客户表格中删除" /></section>
-          <section className="fact-section"><div className="fact-title"><strong>12. 个人需要查询、更正或删除时，通过什么方式联系？</strong><span>必填</span></div><p>{defaultRightsChannel ? "已从企业档案带入统一联系渠道；如本业务使用其他渠道，可以在这里修改。" : "可以填写邮箱、电话、网站表单或其他真实可用的联系入口。"}</p><input className="fact-input" value={facts.rightsChannel} onChange={event => setFacts(current => ({ ...current, rightsChannel: event.target.value }))} placeholder="例如：privacy@example.com 或客服电话" /></section>
+          {multiChoice(8, "accessRoles", "8. 单位内哪些岗位可以查看或使用？", "选择实际能够接触这些信息的岗位；暂时没有分清权限时可选“不清楚”。")}
+          {multiChoice(9, "systemOperators", "9. 谁负责维护保存这些信息的系统？", "例如本单位管理员、云服务商或外包人员；只有纸质材料且无人专门运维时，可选“不涉及专门运维”。")}
+          <section className="fact-section"><div className="fact-title"><strong>10. 通常保存多长时间？</strong><span className="fact-title-tags">{missingTag(10)}<span>必填</span></span></div><p>可以先用业务语言描述，例如“合作期间，结束后保留3年”。</p><input className="fact-input" value={facts.retentionPeriod} onChange={event => setFacts(current => ({ ...current, retentionPeriod: event.target.value }))} placeholder="请输入保存期限或删除条件" /></section>
+          <section className="fact-section"><div className="fact-title"><strong>11. 保存期满后实际怎样处理？</strong><span className="fact-title-tags">{missingTag(11)}<span>必填</span></span></div><p>说明由谁、在什么系统中、按什么方式删除、匿名化或限制继续使用。</p><textarea className="fact-input fact-notes" value={facts.deletionMethod} onChange={event => setFacts(current => ({ ...current, deletionMethod: event.target.value }))} placeholder="例如：每季度由行政负责人核对到期记录，并在邮箱和客户表格中删除" /></section>
+          <section className="fact-section"><div className="fact-title"><strong>12. 个人需要查询、更正或删除时，通过什么方式联系？</strong><span className="fact-title-tags">{missingTag(12)}<span>必填</span></span></div><p>{defaultRightsChannel ? "已从企业档案带入统一联系渠道；如本业务使用其他渠道，可以在这里修改。" : "可以填写邮箱、电话、网站表单或其他真实可用的联系入口。"}</p><input className="fact-input" value={facts.rightsChannel} onChange={event => setFacts(current => ({ ...current, rightsChannel: event.target.value }))} placeholder="例如：privacy@example.com 或客服电话" /></section>
         </>}
         {factStep === 4 && <>
           <div className="fact-step-heading"><span>第 4 步</span><h3>是否存在需要特别关注的情况？</h3><p>不确定时可以选择“不清楚”，系统会保留为待确认事项。</p></div>
-          {answerChoice("sensitiveInformation", "13. 是否包含敏感个人信息？", "例如身份证件、金融账户、健康、生物识别或精确位置。")}
-          {answerChoice("minorsInvolved", "14. 是否可能涉及不满十四周岁未成年人？", "普通B2B联系人和员工场景通常选择“不涉及”。")}
-          {answerChoice("crossBorderAccess", "15. 是否可能从境外存储或访问？", "包括境外云服务，以及境外总部或管理员远程查看。")}
-          {answerChoice("automatedDecision", "16. 系统是否会自动决定推荐、价格、资格或其他对个人有影响的结果？", "普通表格、邮箱、CRM记录本身通常不属于这种情况；如果只是人工查看后作决定，请选择“不涉及”。")}
+          {answerChoice(13, "sensitiveInformation", "13. 是否包含敏感个人信息？", "例如身份证件、金融账户、健康、生物识别或精确位置。")}
+          {answerChoice(14, "minorsInvolved", "14. 是否可能涉及不满十四周岁未成年人？", "普通B2B联系人和员工场景通常选择“不涉及”。")}
+          {answerChoice(15, "crossBorderAccess", "15. 是否可能从境外存储或访问？", "包括境外云服务，以及境外总部或管理员远程查看。")}
+          {answerChoice(16, "automatedDecision", "16. 系统是否会自动决定推荐、价格、资格或其他对个人有影响的结果？", "普通表格、邮箱、CRM记录本身通常不属于这种情况；如果只是人工查看后作决定，请选择“不涉及”。")}
           <section className="fact-section"><div className="fact-title"><strong>补充说明</strong><span>选填</span></div><textarea className="fact-input fact-notes" value={facts.notes} onChange={event => setFacts(current => ({ ...current, notes: event.target.value }))} placeholder="还有哪些情况希望系统在检查时考虑？" /></section>
         </>}
       </div>
+      {missingFacts.length > 0 && <div className="fact-missing-summary">
+        <div className="fact-missing-heading"><AlertTriangle size={16} /><strong>还有 {missingFacts.length} 项未填写</strong><span>完成后才能运行业务检查</span></div>
+        <div className="fact-missing-groups">
+          {factSteps.map(step => {
+            const items = missingFacts.filter(item => item.step === step.number);
+            if (!items.length) return null;
+            return <div className="fact-missing-group" key={step.number}>
+              <span className="fact-missing-step">第 {step.number} 步 · {step.title}</span>
+              <div className="fact-missing-items">{items.map(item => <button type="button" key={item.no} className="fact-missing-item" onClick={() => setFactStep(item.step)}>{item.no}. {item.label}<ArrowRight size={12} /></button>)}</div>
+            </div>;
+          })}
+        </div>
+      </div>}
+      {missingFacts.length === 0 && <div className="fact-complete-note"><CheckCircle2 size={15} /> 16 项业务事实已全部填写，保存后即可运行业务检查。</div>}
       {error && <div className="alert danger">{error}</div>}
       <div className="modal-actions wizard-actions fact-wizard-actions"><span>第 {factStep} 步，共 4 步</span><div>{factStep > 1 && <button className="button secondary" onClick={() => setFactStep(current => current - 1)}>上一步</button>}{factStep < 4 ? <><button className="button secondary" disabled={busy === editing.id} onClick={() => void saveFacts(true)}>{busy === editing.id ? "保存中…" : "保存并退出"}</button><button className="button primary" onClick={() => setFactStep(current => current + 1)}>下一步 <ArrowRight size={15} /></button></> : <button className="button primary" disabled={busy === editing.id} onClick={() => void saveFacts(true)}>{busy === editing.id ? "保存中…" : "保存业务情况"}</button>}</div></div>
     </section></div>}

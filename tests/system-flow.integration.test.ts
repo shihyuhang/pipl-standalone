@@ -57,18 +57,71 @@ test("完整业务流会自动关闭可由系统核验的任务", async () => {
     minorsInvolved: "no",
     crossBorderAccess: "no"
   });
-  db.createDocument({
+  const document = db.createDocument({
     name: "业务联系人个人信息告知",
     type: "b2b_contact_notice",
     scope: "客户和供应商联系",
     audience: "客户和供应商联系人",
     activityIds: [activity.id],
-    content: "测试告知内容"
+    content: "这是一份用于验证材料生命周期的完整测试告知内容，包含必要的业务说明。"
   });
   tasks = db.listTasks();
   assert.equal(tasks.find(item => item.code === `COMPLETE-${activity.id}`)?.completionMode, "automatic");
+  assert.notEqual(tasks.find(item => item.code === "CREATE-FIRST-NOTICE")?.status, "completed");
+
+  const draft = document.versions![0];
+  db.publishDocumentVersion(document.id, draft.id, { publishedBy: "测试负责人", publishChannel: "测试官网" });
+  tasks = db.listTasks();
   assert.equal(tasks.find(item => item.code === "CREATE-FIRST-NOTICE")?.completionMode, "automatic");
   assert.equal(tasks.filter(item => item.status !== "completed").length, 0);
+});
+
+test("材料草稿可由负责人直接发布且不能跨材料操作", async () => {
+  const db = await import("../src/lib/db.ts");
+  const activity = db.listActivities()[0];
+  const second = db.createDocument({
+    name: "第二份测试材料", type: "privacy_notice", scope: "测试范围", audience: "测试人员", activityIds: [activity.id],
+    content: "这是第二份用于验证版本归属和发布约束的完整测试材料内容。"
+  });
+  const secondDraft = second.versions![0];
+  const first = db.listDocuments().find(item => item.name === "业务联系人个人信息告知")!;
+  assert.throws(() => db.publishDocumentVersion(first.id, secondDraft.id, { publishedBy: "测试人员", publishChannel: "官网" }), /VERSION_NOT_OWNED/);
+
+  db.publishDocumentVersion(second.id, secondDraft.id, { publishedBy: "测试负责人", publishChannel: "官网", publicationEvidence: "测试页面" });
+  const published = db.getDocument(second.id)!;
+  assert.equal(published.currentVersion?.status, "effective");
+  assert.equal(published.currentVersion?.publishedBy, "测试负责人");
+  assert.ok(published.currentVersion?.contentHash);
+});
+
+test("业务事实变化会提示关联材料复核并支持新版本闭环", async () => {
+  const db = await import("../src/lib/db.ts");
+  const activity = db.listActivities()[0];
+  db.updateActivityFacts(activity.id, { ...activity.facts, retentionPeriod: "合作结束后五年删除" });
+  const affected = db.listDocuments().find(item => item.name === "业务联系人个人信息告知")!;
+  assert.equal(affected.healthStatus, "needs_review");
+  assert.match(affected.reviewReason, /保存期限/);
+  assert.ok(affected.pendingImpacts?.[0].affectedSections.includes("保存和删除"));
+
+  const revision = db.createDocumentVersion(affected.id, {
+    content: `${affected.currentVersion!.content}\n\n保存期限已根据最新业务情况调整为合作结束后五年。`,
+    changeSummary: "更新保存期限", createdBy: "测试经办人"
+  });
+  assert.equal(db.getDocument(affected.id)?.healthStatus, "updating");
+  db.publishDocumentVersion(affected.id, revision.id, { publishedBy: "测试负责人", publishChannel: "官网" });
+  const refreshed = db.getDocument(affected.id)!;
+  assert.equal(refreshed.healthStatus, "current");
+  assert.equal(refreshed.currentVersion?.id, revision.id);
+  assert.equal(refreshed.pendingImpacts?.length, 0);
+
+  const pending = db.createDocumentVersion(affected.id, {
+    content: `${refreshed.currentVersion!.content}\n\n准备补充新的接收方说明。`, changeSummary: "准备更新接收方", createdBy: "测试经办人"
+  });
+  db.updateActivityFacts(activity.id, { ...db.getActivity(activity.id)!.facts, recipients: ["某云服务商"] });
+  const invalidatedApproval = db.getDocument(affected.id)!;
+  assert.equal(invalidatedApproval.versions?.find(item => item.id === pending.id)?.status, "draft");
+  assert.equal(invalidatedApproval.healthStatus, "updating");
+  assert.match(invalidatedApproval.reviewReason, /外部服务商或接收方/);
 });
 
 test("官方自查整改任务会随结论更新自动关闭", async () => {
@@ -147,4 +200,21 @@ test("历史检查结果和关联待办不会泄露 GDPR 术语或内部枚举",
 
   const task = db.createTaskFromFinding(visible.id, visible.findings[0].id)!;
   assert.doesNotMatch(`${task.title}${task.description}`, /processingRole|independent_processor|控制者|controller|processor/i);
+});
+
+test("只有从未发布的材料可以删除，已发布材料拒绝删除", async () => {
+  const db = await import("../src/lib/db.ts");
+  const activity = db.listActivities()[0];
+  const deletable = db.createDocument({
+    name: "待删除的纯草稿材料", type: "privacy_notice", scope: "删除测试范围", audience: "测试人员", activityIds: [activity.id],
+    content: "这是一份从未发布、用于验证删除能力的完整测试材料内容。"
+  });
+  const removed = db.deleteDocument(deletable.id);
+  assert.equal(removed.id, deletable.id);
+  assert.equal(db.getDocument(deletable.id), null);
+  assert.throws(() => db.deleteDocument(deletable.id), /DOCUMENT_NOT_FOUND/);
+
+  const published = db.listDocuments().find(item => item.currentVersion)!;
+  assert.throws(() => db.deleteDocument(published.id), /DOCUMENT_HAS_PUBLISHED_VERSION/);
+  assert.ok(db.getDocument(published.id), "已发布材料应保留");
 });
