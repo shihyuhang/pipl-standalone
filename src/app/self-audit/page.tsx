@@ -88,10 +88,16 @@ export default function SelfAuditPage() {
           <div className="conclusion-choices">{(["compliant", "non_compliant", "not_applicable"] as AuditConclusion[]).map(value => <button key={value} disabled={readOnly} className={item.conclusion === value ? `selected choice-${value}` : ""} onClick={() => patchLocal(item.itemCode, { conclusion: value })}>{conclusionLabels[value]}</button>)}</div>
           <label className="field"><span>{item.conclusion === "not_applicable" ? "为什么与本单位无关（必填）" : item.conclusion === "non_compliant" ? "实际情况和准备怎样整改（必填）" : "判断说明（建议填写）"}</span><textarea readOnly={readOnly} value={item.explanation} onChange={event => patchLocal(item.itemCode, { explanation: event.target.value })} placeholder="请用实际业务语言说明，不必照抄法规。" /></label>
           <label className="field"><span>证明材料或存放位置（选填）</span><input readOnly={readOnly} value={item.evidenceNote} onChange={event => patchLocal(item.itemCode, { evidenceNote: event.target.value })} placeholder={`例如：${item.definition.evidenceExamples.join("、")}`} /></label>
-          <div className="audit-question-actions">{item.taskId && <a className="task-created" href="/tasks"><ClipboardCheck size={14} /> 已生成整改事项</a>} {!readOnly && <button className="button small primary" disabled={busy || item.conclusion === "unanswered" || ((item.conclusion === "non_compliant" || item.conclusion === "not_applicable") && !item.explanation.trim())} onClick={() => save(item)}>保存本项</button>}</div>
+          <div className="audit-question-actions">{item.taskId && <a className="task-created" href="/tasks"><ClipboardCheck size={14} /> 已生成整改事项</a>} {!readOnly && <button className="button small primary" disabled={busy || item.conclusion === "unanswered" || ((item.conclusion === "non_compliant" || item.conclusion === "not_applicable") && !item.explanation.trim())} onClick={() => save(item)}>保存本项</button>}{!readOnly && (item.conclusion === "non_compliant" || item.conclusion === "not_applicable") && !item.explanation.trim() && <span className="field-help" style={{ marginLeft: 8, color: "#a64141" }}>请填写说明后才能保存</span>}</div>
         </article>)}</div></section>
       </div>
-      {!readOnly && <section className="audit-finish card"><div><strong>{current.answeredCount === 24 ? "24 项已经完成判断" : `还需判断 ${24 - current.answeredCount} 项`}</strong><p>正式确认后，本期答案、负责人、时间和内容哈希将冻结，不能直接修改。</p></div><button className="button primary" disabled={current.answeredCount !== 24} onClick={() => setSigning(true)}><FileCheck2 size={16} /> 负责人确认并归档</button></section>}
+      {!readOnly && <section className="audit-finish card"><div><strong>{current.answeredCount === 24 ? "24 项已经完成判断" : `还需判断 ${24 - current.answeredCount} 项`}</strong><p>正式确认后，本期答案、负责人、时间和内容哈希将冻结，不能直接修改。</p></div><button className="button primary" disabled={current.answeredCount !== 24} onClick={() => {
+        const allCompliant = (current.responses || []).every(item => item.conclusion === "compliant");
+        if (allCompliant) {
+          if (!window.confirm("请确认：全部 24 项均选择\u201C符合\u201D的情况较为少见。\n\n如某些事项与本单位无关（例如无出境业务、无敏感信息处理），应选择\u201C与本单位无关\u201D并说明原因。\n\n确定全部事项均符合吗？")) return;
+        }
+        setSigning(true);
+      }}><FileCheck2 size={16} /> 负责人确认并归档</button></section>}
       <OfficialAuditPrint instance={current} />
     </>}
 

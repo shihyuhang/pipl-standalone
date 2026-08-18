@@ -119,11 +119,11 @@ export default function ComplianceCheckPage() {
     {error && <div className="alert danger">{error}</div>}
 
     <section className="check-guide card">
-      <div className="check-guide-step active"><span>1</span><div><strong>检查具体业务</strong><small>确认填写完整、前后一致</small></div></div>
+      <div className="check-guide-step active"><span>1</span><div><strong>检查具体业务</strong><small>确认填写完整、前后一致</small><span className="check-guide-note">完成后形成检查记录，为第 3 步提供线索</span></div></div>
       <ArrowRight />
-      <div className={`check-guide-step ${recommended.length || unfinishedPipia.length ? "attention" : ""}`}><span>2</span><div><strong>必要时专项评估</strong><small>系统触发时才需要填写</small></div></div>
+      <div className={`check-guide-step ${recommended.length || unfinishedPipia.length ? "attention" : ""}`}><span>2</span><div><strong>必要时专项评估</strong><small>系统触发时才需要填写</small><span className="check-guide-note">敏感信息、自动化决策、出境等情形触发</span></div></div>
       <ArrowRight />
-      <div className={`check-guide-step ${auditComplete ? "done" : ""}`}><span>{auditComplete ? <CheckCircle2 /> : "3"}</span><div><strong>全面检查本单位</strong><small>至少每五年一次，也可随时自查</small></div></div>
+      <div className={`check-guide-step ${auditComplete ? "done" : ""}`}><span>{auditComplete ? <CheckCircle2 /> : "3"}</span><div><strong>全面检查本单位</strong><small>至少每五年一次，也可随时自查</small><span className="check-guide-note">复用前序已确认信息</span></div></div>
     </section>
 
     <section className="check-section">
@@ -170,7 +170,13 @@ export default function ComplianceCheckPage() {
 
     <section className="check-history-note">
       <AlertTriangle size={16} />
-      <span>“业务检查”“全面检查”和“专项评估”在后台仍分别保存，便于负责人确认、打印和追溯；这里只把操作入口合并。</span>
+      <span>"业务检查""全面检查"和"专项评估"在后台仍分别保存，便于负责人确认、打印和追溯；这里只把操作入口合并。</span>
+    </section>
+
+    <section className="check-history-links">
+      <Link href="/assessments" className="history-link"><FileSearch size={15} /> 业务检查记录</Link>
+      <Link href="/impact-assessments" className="history-link"><Scale size={15} /> 专项评估记录</Link>
+      <Link href="/self-audit" className="history-link"><ShieldCheck size={15} /> 全面检查记录</Link>
     </section>
   </>;
 }

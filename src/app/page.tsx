@@ -21,8 +21,8 @@ export default function DashboardPage() {
 
     <section className={`hero-status tone-${data.enterprise.qualificationStatus}`}>
       <div className="hero-status-icon">{data.enterprise.qualificationStatus === "eligible" ? <CheckCircle2 /> : <ShieldAlert />}</div>
-      <div className="hero-status-copy"><span>当前工作路径</span><h2>{data.enterprise.qualificationSummary}</h2><StatusBadge status={data.enterprise.qualificationStatus} /></div>
-      <Link href="/onboarding" className="text-link">更新企业情况 <ArrowRight size={16} /></Link>
+      <div className="hero-status-copy"><span>当前工作路径</span><h2>{data.enterprise.qualificationSummary}</h2><StatusBadge status={data.enterprise.qualificationStatus} />{data.enterprise.qualificationStatus === "conditional" && <p className="hero-status-hint">还需确认人数口径和处理角色后才能形成正式判断。</p>}{data.enterprise.qualificationStatus === "needs_review" && <p className="hero-status-hint">涉及敏感信息、未成年人或出境，需负责人专项确认。</p>}{data.enterprise.qualificationStatus === "out_of_scope" && <p className="hero-status-hint">人数已达 10 万，建议转专业人员评估。</p>}</div>
+      <Link href="/onboarding" className="button secondary small">情况有变化？重新确认适用性 <ArrowRight size={15} /></Link>
     </section>
 
     <div className="metric-grid">

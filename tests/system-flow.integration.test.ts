@@ -218,3 +218,32 @@ test("只有从未发布的材料可以删除，已发布材料拒绝删除", as
   assert.throws(() => db.deleteDocument(published.id), /DOCUMENT_HAS_PUBLISHED_VERSION/);
   assert.ok(db.getDocument(published.id), "已发布材料应保留");
 });
+
+test("首次建档不会误触发已发布材料的复核，后续真实变更才会", async () => {
+  const db = await import("../src/lib/db.ts");
+  const activity = db.listActivities()[0];
+  // 直接验证修复分支：在"尚未完成建档"状态下修改企业信息，不生成 enterprise_change 影响
+  const base = db.getEnterprise();
+  db.updateEnterprise({ ...base, onboardingCompleted: false });
+  const clean = db.createDocument({
+    name: "建档影响专用观察材料", type: "privacy_notice", scope: "建档影响测试", audience: "测试人员", activityIds: [activity.id],
+    content: "这是一份用于验证首次建档是否误触发复核的完整测试材料内容，发布为当前版本。"
+  });
+  db.publishDocumentVersion(clean.id, clean.versions![0].id, { publishedBy: "测试负责人", publishChannel: "官网" });
+  assert.equal(db.getDocument(clean.id)!.healthStatus, "current");
+
+  // 首次完成建档：字段大量变化，但前态 onboardingCompleted=false，属初始建立，不应生成影响
+  db.updateEnterprise({
+    ...base, legalName: "首次建档单位有限公司", privacyContactName: "新负责人", privacyContactChannel: "new@example.test",
+    sensitiveCategories: ["identity_document"], minorsPossible: "yes", onboardingCompleted: true
+  });
+  const afterFirst = db.getDocument(clean.id)!;
+  assert.equal(afterFirst.healthStatus, "current", "首次建档不应把已发布材料打成 needs_review");
+  assert.equal(afterFirst.pendingImpacts?.length ?? 0, 0, "首次建档不应生成 enterprise_change 影响");
+
+  // 之后真实修改企业信息（已完成建档状态下），应正常触发复核
+  db.updateEnterprise({ ...db.getEnterprise(), privacyContactChannel: "changed@example.test" });
+  const afterChange = db.getDocument(clean.id)!;
+  assert.equal(afterChange.healthStatus, "needs_review", "建档完成后的真实变更应触发复核");
+  assert.match(afterChange.reviewReason, /联系渠道/);
+});

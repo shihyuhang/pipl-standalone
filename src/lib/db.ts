@@ -310,7 +310,9 @@ export function updateEnterprise(profile: Omit<EnterpriseProfile, "id" | "update
       profile.privacyContactName, profile.privacyContactRole, profile.privacyContactChannel,
       profile.qualificationStatus, profile.qualificationSummary, profile.onboardingCompleted ? 1 : 0, now(), current.id
     );
-  if (impactFields.length) {
+  // 仅在修改前档案已完成建档时才生成"企业档案变更"影响；
+  // 首次 onboarding（空档案 → 完整档案）属于初始建立，不应把已发布材料误标为需复核。
+  if (impactFields.length && current.onboardingCompleted) {
     const impact = describeEnterpriseImpact(impactFields);
     markDocumentsForEnterpriseChange(impact.reason, impact.changedFields, impact.affectedSections);
   }
@@ -561,6 +563,18 @@ export function publishDocumentVersion(documentId: string, versionId: string, in
   const version = getOwnedVersion(documentId, versionId);
   if (!["draft", "under_review", "approved"].includes(version.status)) throw new Error("VERSION_NOT_PUBLISHABLE");
   if (version.content.trim().length < 20) throw new Error("INCOMPLETE_DOCUMENT");
+  const document = getDocument(documentId);
+  if (document?.type === "sensitive_consent") {
+    const content = version.content;
+    if (content.includes("待结合实际业务补充") || content.includes("待补充") || content.includes("待确认")) {
+      throw new Error("SENSITIVE_FIELDS_INCOMPLETE");
+    }
+  }
+  if (document?.type === "cross_border_notice_consent") {
+    if (version.content.includes("待逐项确认")) {
+      throw new Error("CROSS_BORDER_RECIPIENT_INCOMPLETE");
+    }
+  }
   const db = getDb(); const timestamp = now();
   db.exec("BEGIN");
   try {
