@@ -163,7 +163,7 @@ export default function TasksPage() {
   const formConfig = selected ? taskFormConfig(selected) : null;
 
   return <>
-    <section className="page-heading"><div><p className="eyebrow">办理事项</p><h1>把要求变成可以完成的任务</h1><p>能从企业档案、业务、材料和评估结果确认的事项由系统自动完成；只有实际整改才需要记录办理结果。</p></div></section>
+    <section className="page-heading"><div><p className="eyebrow">办理事项</p><h1>待办与整改</h1><p>可由企业档案、业务记录或评估结果确认的事项由系统自动办结；其余事项需记录实际整改结果。</p></div></section>
     <div className="tab-bar"><button className={filter === "open" ? "active" : ""} onClick={() => setFilter("open")}>需要办理 <span>{tasks.filter(task => task.status !== "completed").length}</span></button><button className={filter === "completed" ? "active" : ""} onClick={() => setFilter("completed")}>已经完成 <span>{tasks.filter(task => task.status === "completed").length}</span></button></div>
     <section className="card task-board">{visible.length ? visible.map(task => <article className="task-item" key={task.id}>
       <div className={`task-check ${task.status === "completed" ? "done" : ""}`} aria-hidden>{task.status === "completed" ? <Check size={17} /> : <Circle size={17} />}</div>

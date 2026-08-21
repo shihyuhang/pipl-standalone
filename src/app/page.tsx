@@ -17,12 +17,12 @@ export default function DashboardPage() {
 
   const openTasks = data.tasks.filter(t => t.status !== "completed").slice(0, 4);
   return <>
-    <section className="page-heading"><div><p className="eyebrow">工作台首页</p><h1>您好，{data.enterprise.legalName}</h1><p>先完成最重要的几件事，系统会同步整理材料和记录。</p></div><Link className="button secondary" href="/business"><Plus size={17} /> 业务有变化</Link></section>
+    <section className="page-heading"><div><p className="eyebrow">工作台首页</p><h1>您好，{data.enterprise.legalName}</h1><p>根据业务变化，系统持续整理适用义务、材料和待办。</p></div><Link className="button secondary" href="/business"><Plus size={17} /> 记录业务</Link></section>
 
     <section className={`hero-status tone-${data.enterprise.qualificationStatus}`}>
       <div className="hero-status-icon">{data.enterprise.qualificationStatus === "eligible" ? <CheckCircle2 /> : <ShieldAlert />}</div>
       <div className="hero-status-copy"><span>当前工作路径</span><h2>{data.enterprise.qualificationSummary}</h2><StatusBadge status={data.enterprise.qualificationStatus} />{data.enterprise.qualificationStatus === "conditional" && <p className="hero-status-hint">还需确认人数口径和处理角色后才能形成正式判断。</p>}{data.enterprise.qualificationStatus === "needs_review" && <p className="hero-status-hint">涉及敏感信息、未成年人或出境，需负责人专项确认。</p>}{data.enterprise.qualificationStatus === "out_of_scope" && <p className="hero-status-hint">人数已达 10 万，建议转专业人员评估。</p>}</div>
-      <Link href="/onboarding" className="button secondary small">情况有变化？重新确认适用性 <ArrowRight size={15} /></Link>
+      <Link href="/business" className="button secondary small">单位情况有变化？前往修改 <ArrowRight size={15} /></Link>
     </section>
 
     <div className="metric-grid">

@@ -3,13 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  AlertTriangle, ArrowRight, BriefcaseBusiness, Building2, CheckCircle2, ClipboardCheck, ClipboardList,
+  AlertTriangle, ArrowRight, BriefcaseBusiness, CheckCircle2, ClipboardCheck, ClipboardList,
   Pencil, Plus, RefreshCw, Trash2
 } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge } from "@/components/StatusBadge";
 import { emptyActivityFacts } from "@/lib/activity-facts";
-import type { ActivityFacts, AssessmentRun, FactAnswer, ProcessingActivity } from "@/lib/types";
+import type { ActivityFacts, AssessmentRun, EnterpriseProfile, FactAnswer, ProcessingActivity } from "@/lib/types";
 
 type Scenario = { code: string; name: string; description: string; recommended: string };
 const optionGroups = {
@@ -34,6 +34,17 @@ const triageTitles: Record<string, string> = {
   needs_input: "还需要补充业务情况",
   needs_review: "需要负责人或专业人员确认"
 };
+
+const orgTypeOptions = [["company", "公司"], ["branch", "分支机构"], ["individual_business", "个体工商户"], ["partnership", "合伙企业"], ["institution", "其他组织"]];
+const businessModelOptions = [["B2B", "主要面向企业"], ["B2C", "主要面向个人"], ["both", "两者都有"], ["internal_only", "主要是内部员工管理"]];
+const ownershipOptions = [["domestic", "不是"], ["foreign_invested", "外商投资企业"], ["foreign_branch", "外国企业在华分支"], ["unknown", "不清楚"]];
+const processingRoleOptions = [["independent_processor", "主要由我们自己决定"], ["entrusted_processor", "主要按照客户或其他公司的指示处理"], ["mixed", "两种情况都有"], ["unknown", "不清楚"]];
+const subjectOptions = [["employee", "在职员工"], ["candidate", "招聘候选人"], ["customer_contact", "客户企业联系人"], ["supplier_contact", "供应商联系人"], ["consumer", "消费者或会员"], ["visitor", "访客"]];
+const sensitiveOptions = [["identity_document", "身份证件"], ["financial_account", "金融账户"], ["health", "健康信息"], ["biometric", "人脸或指纹"], ["precise_location", "精确位置"]];
+const ynOptions = [["no", "没有"], ["yes", "有"], ["unknown", "不清楚"]];
+const industrySuggestions = ["软件和信息技术服务", "专业服务", "制造业", "批发和零售", "住宿和餐饮", "租赁和商务服务", "房地产和物业管理", "交通运输和物流", "教育培训", "医疗健康", "文化、体育和娱乐"];
+
+function labelOf(options: string[][], value: string) { return options.find(([v]) => v === value)?.[1] || value || "—"; }
 
 const factSteps = [
   { number: 1, title: "业务对象", description: "涉及哪些人、哪些信息和大致人数" },
@@ -80,6 +91,11 @@ export default function BusinessPage() {
   const [factStep, setFactStep] = useState(1);
   const [defaultRightsChannel, setDefaultRightsChannel] = useState("");
   const [error, setError] = useState("");
+  const [enterprise, setEnterprise] = useState<EnterpriseProfile | null>(null);
+  const [entForm, setEntForm] = useState<EnterpriseProfile | null>(null);
+  const [entEditing, setEntEditing] = useState(false);
+  const [entSaving, setEntSaving] = useState(false);
+  const [entError, setEntError] = useState("");
 
   const load = () => fetch("/api/scenarios", { cache: "no-store" })
     .then(response => response.json())
@@ -89,9 +105,25 @@ export default function BusinessPage() {
     void load();
     void fetch("/api/enterprise", { cache: "no-store" })
       .then(response => response.json())
-      .then(data => setDefaultRightsChannel(String(data.privacyContactChannel || "")))
+      .then(data => {
+        setDefaultRightsChannel(String(data.privacyContactChannel || ""));
+        setEnterprise(data);
+      })
       .catch(() => undefined);
   }, []);
+
+  const openEnterpriseEdit = () => { setEntForm(enterprise ? { ...enterprise } : null); setEntError(""); setEntEditing(true); };
+  const setEnt = <K extends keyof EnterpriseProfile>(key: K, value: EnterpriseProfile[K]) => setEntForm(old => old ? { ...old, [key]: value } : old);
+  const toggleEnt = (key: "subjectCategories" | "sensitiveCategories", value: string) => setEntForm(old => old ? { ...old, [key]: old[key].includes(value) ? old[key].filter(v => v !== value) : [...old[key], value] } : old);
+  const saveEnterprise = async () => {
+    if (!entForm) return;
+    setEntSaving(true); setEntError("");
+    const response = await fetch("/api/enterprise", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...entForm, personCount: entForm.personCount === null ? null : Number(entForm.personCount) }) });
+    const payload = await response.json().catch(() => ({}));
+    if (response.ok) { setEnterprise(payload.enterprise); setEntEditing(false); }
+    else setEntError(payload.message || "保存失败，请检查填写内容。");
+    setEntSaving(false);
+  };
   const existing = useMemo(() => new Set(activities.map(item => item.scenarioCode)), [activities]);
   const missingFacts = useMemo(() => factRequirements.filter(item => !item.filled(facts)), [facts]);
   const isMissing = (no: number) => missingFacts.some(item => item.no === no);
@@ -200,11 +232,52 @@ export default function BusinessPage() {
 
   return <>
     <section className="page-heading">
-      <div><p className="eyebrow">我的业务</p><h1>贵单位怎样使用个人信息</h1><p>用熟悉的业务名称记录，不需要先理解法律术语。</p></div>
+      <div><p className="eyebrow">我的业务</p><h1>贵单位怎样使用个人信息</h1><p>以业务名称为单位记录个人信息处理情况，系统据此匹配法定义务。</p></div>
       <button className="button primary" onClick={() => setAdding(true)}><Plus size={17} /> 添加业务</button>
     </section>
 
-    <div className="info-strip"><Building2 /><div><strong>一项实际业务，一份持续更新的记录</strong><span>业务情况发生变化时在这里修改；系统据此更新检查、办理事项和合规材料。</span></div></div>
+    {enterprise && <section className="card enterprise-card">
+      <div className="card-header"><div><p className="eyebrow">单位信息</p><h2>{enterprise.legalName}</h2></div>{!entEditing && <button className="button secondary small" onClick={openEnterpriseEdit}><Pencil size={15} /> 修改单位信息</button>}</div>
+      {!entEditing ? <div className="enterprise-summary">
+        <div><span>单位类型</span><strong>{labelOf(orgTypeOptions, enterprise.orgType)}</strong></div>
+        <div><span>所属行业</span><strong>{enterprise.industry || "—"}</strong></div>
+        <div><span>业务面向</span><strong>{labelOf(businessModelOptions, enterprise.businessModel)}</strong></div>
+        <div><span>涉及人数</span><strong>{enterprise.personCount === null ? "待确认" : `约 ${enterprise.personCount} 人`}</strong></div>
+        <div><span>处理角色</span><strong>{labelOf(processingRoleOptions, enterprise.processingRole)}</strong></div>
+        <div><span>未成年人</span><strong>{labelOf(ynOptions, enterprise.minorsPossible)}</strong></div>
+        <div><span>境外存储/访问</span><strong>{labelOf(ynOptions, enterprise.crossBorder)}</strong></div>
+        <div><span>负责人</span><strong>{[enterprise.privacyContactName, enterprise.privacyContactRole].filter(Boolean).join(" · ") || "—"}</strong></div>
+        <div><span>联系渠道</span><strong>{enterprise.privacyContactChannel || "—"}</strong></div>
+      </div> : entForm && <div className="enterprise-edit">
+        <div className="two-column-fields">
+          <label className="field"><span>单位名称</span><input value={entForm.legalName} onChange={e => setEnt("legalName", e.target.value)} /></label>
+          <label className="field"><span>所属行业</span><input list="ent-industry-suggestions" value={entForm.industry} onChange={e => setEnt("industry", e.target.value)} /><datalist id="ent-industry-suggestions">{industrySuggestions.map(item => <option value={item} key={item} />)}</datalist></label>
+        </div>
+        <div className="field"><span>单位类型</span><div className="segmented">{orgTypeOptions.map(([v, l]) => <button type="button" className={entForm.orgType === v ? "selected" : ""} key={v} onClick={() => setEnt("orgType", v)}>{l}</button>)}</div></div>
+        <div className="field"><span>主要业务面向谁？</span><div className="segmented">{businessModelOptions.map(([v, l]) => <button type="button" className={entForm.businessModel === v ? "selected" : ""} key={v} onClick={() => setEnt("businessModel", v as EnterpriseProfile["businessModel"])}>{l}</button>)}</div></div>
+        <div className="field"><span>是否为外商投资企业或外国企业在华分支？</span><div className="segmented">{ownershipOptions.map(([v, l]) => <button type="button" className={entForm.ownership === v ? "selected" : ""} key={v} onClick={() => setEnt("ownership", v)}>{l}</button>)}</div><small className="field-help">仅用于记录和生成材料时的背景说明，不影响适用性判断和材料推荐。</small></div>
+        <div className="two-column-fields">
+          <label className="field"><span>涉及自然人人数</span><div className="input-suffix"><input type="number" min="0" value={entForm.personCount ?? ""} onChange={e => setEnt("personCount", e.target.value === "" ? null : Number(e.target.value))} placeholder="例如 2300" /><span>人</span></div></label>
+          <label className="check-line"><input type="checkbox" checked={entForm.countVerified} onChange={e => setEnt("countVerified", e.target.checked)} /><span><strong>已合并各系统中的自然人</strong><small>不确定也可以继续，系统会生成确认任务。</small></span></label>
+        </div>
+        <div className="field"><span>通常由谁决定为什么收集和怎样使用这些信息？</span><div className="segmented">{processingRoleOptions.map(([v, l]) => <button type="button" className={entForm.processingRole === v ? "selected" : ""} key={v} onClick={() => setEnt("processingRole", v)}>{l}</button>)}</div></div>
+        <div className="field"><span>目前保存哪些人的信息？</span><div className="tag-choices">{subjectOptions.map(([v, l]) => <button type="button" className={entForm.subjectCategories.includes(v) ? "selected" : ""} key={v} onClick={() => toggleEnt("subjectCategories", v)}>{l}</button>)}</div></div>
+        <div className="field"><span>是否处理以下较敏感的信息？</span><div className="tag-choices">{sensitiveOptions.map(([v, l]) => <button type="button" className={entForm.sensitiveCategories.includes(v) ? "selected" : ""} key={v} onClick={() => toggleEnt("sensitiveCategories", v)}>{l}</button>)}</div><small className="field-help">都不涉及时不用选择。</small></div>
+        <div className="two-column-fields">
+          <div className="field"><span>可能包括不满十四周岁的未成年人吗？</span><div className="segmented">{ynOptions.map(([v, l]) => <button type="button" className={entForm.minorsPossible === v ? "selected" : ""} key={v} onClick={() => setEnt("minorsPossible", v as EnterpriseProfile["minorsPossible"])}>{l}</button>)}</div></div>
+          <div className="field"><span>会存到境外或被境外人员远程查看吗？</span><div className="segmented">{ynOptions.map(([v, l]) => <button type="button" className={entForm.crossBorder === v ? "selected" : ""} key={v} onClick={() => setEnt("crossBorder", v as EnterpriseProfile["crossBorder"])}>{l}</button>)}</div></div>
+        </div>
+        <div className="three-inputs">
+          <label><span>负责人姓名</span><input value={entForm.privacyContactName} onChange={e => setEnt("privacyContactName", e.target.value)} /></label>
+          <label><span>岗位</span><input value={entForm.privacyContactRole} onChange={e => setEnt("privacyContactRole", e.target.value)} /></label>
+          <label><span>联系渠道</span><input value={entForm.privacyContactChannel} onChange={e => setEnt("privacyContactChannel", e.target.value)} /></label>
+        </div>
+        {entError && <div className="alert danger">{entError}</div>}
+        <div className="enterprise-edit-actions"><button className="button secondary" onClick={() => setEntEditing(false)}>取消</button><button className="button primary" disabled={entSaving} onClick={saveEnterprise}>{entSaving ? <RefreshCw size={16} className="spin" /> : <CheckCircle2 size={16} />} 保存单位信息</button></div>
+        <p className="field-help">人数口径、处理角色、敏感情况、未成年人或出境情况变化时，保存后系统会重新判断适用路径。</p>
+      </div>}
+    </section>}
+
     {error && !editing && <div className="alert danger">{error}</div>}
 
     {activities.length ? <div className="activity-table">

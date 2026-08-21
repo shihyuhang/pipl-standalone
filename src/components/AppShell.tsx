@@ -39,7 +39,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="content-shell">
         <header className="topbar">
           <button className="mobile-menu" onClick={() => setOpen(true)} aria-label="打开菜单"><Menu /></button>
-          <div className="topbar-note">把复杂要求，变成今天能完成的事</div>
+          <div className="topbar-note">面向小型个人信息处理者的合规工作台</div>
           <div className="avatar">负责人</div>
         </header>
         <main className="page-container">{children}</main>

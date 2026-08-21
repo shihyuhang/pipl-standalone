@@ -327,3 +327,18 @@ a.legal-material-card { text-decoration: none; color: inherit; }
 .pipia-list-label { margin: 5px 12px 8px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); display: flex; justify-content: space-between; align-items: center; font-size: 9px; font-weight: 800; }.pipia-list-label:first-of-type { border-top: 0; }.pipia-list-label b { min-width: 19px; padding: 2px 6px; border-radius: 9px; color: #7b5a17; background: var(--warning-soft); text-align: center; }.pipia-list-label.archived b { color: var(--brand); background: var(--brand-soft); }
 .task-item > .task-check { cursor: default; }
 @media print { .sidebar, .topbar, .page-heading .button { display: none !important; }.content-shell { margin: 0; }.page-container { max-width: none; padding: 10px; }.card { box-shadow: none; break-inside: avoid; } body:has(.official-print) .page-container > *:not(.official-print) { display: none !important; } body:has(.official-print) .official-print { display: block !important; } }
+
+.enterprise-card { margin-bottom: 18px; }
+.enterprise-card .card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.enterprise-card .card-header > div { flex: 1; }
+.enterprise-card .card-header h2 { margin: 0 0 4px; font-size: 15px; }
+.enterprise-card .card-header p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.enterprise-summary { padding: 4px 21px 18px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 13px 18px; }
+.enterprise-summary > div { min-width: 0; }
+.enterprise-summary span { display: block; color: var(--muted); font-size: 9px; font-weight: 600; }
+.enterprise-summary strong { display: block; margin-top: 4px; font-size: 12px; font-weight: 700; line-height: 1.5; word-break: break-all; }
+.enterprise-edit { padding: 4px 21px 6px; }
+.enterprise-edit .field { margin: 15px 0; }
+.enterprise-edit-actions { padding: 16px 21px 20px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; align-items: center; gap: 9px; }
+.enterprise-edit-actions .form-error { margin: 0 auto 0 0; }
+@media (max-width: 640px) { .enterprise-summary { grid-template-columns: 1fr 1fr; } }

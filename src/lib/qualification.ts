@@ -68,7 +68,7 @@ export function assessQualification(input: QualificationInput): QualificationRes
 
   return {
     status: "eligible",
-    summary: "根据已确认情况，目前适合使用小型个人信息处理者工作路径。",
+    summary: "适用小型个人信息处理者的合规义务。",
     reasons: ["当前人数低于 10 万人，且未发现需要立即转出的高风险事项。"],
     tasks
   };
