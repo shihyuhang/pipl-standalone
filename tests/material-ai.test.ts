@@ -55,6 +55,21 @@ test("提交预览采用默认最小字段并且不展示可恢复的真实值",
   assert.ok(withNotes.redactionLabels.includes("自由文本中的姓名"));
 });
 
+test("AI上下文使用受控的敏感个人信息类别名称", () => {
+  const preview = buildMaterialAiTransferPreview({
+    name: definition.name,
+    scope: definition.defaultScope,
+    audience: definition.defaultAudience,
+    definition,
+    enterprise,
+    activities: [{ ...activity, facts: { ...activity.facts, sensitiveInformation: "yes", sensitiveCategories: ["medical_health"] } }],
+    baselineDraft: "基础模板"
+  });
+  const serialized = JSON.stringify(preview.payload);
+  assert.match(serialized, /医疗健康信息/);
+  assert.doesNotMatch(serialized, /medical_health/);
+});
+
 test("AI删除必要占位符时拒绝结果，避免交付材料缺少本地数据", async () => {
   const fetchMock = (async () => new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ content: `# 未保留占位符\n\n${"正文。".repeat(100)}`, pending_facts: [], summary: "草稿" }) } }] }), { status: 200, headers: { "Content-Type": "application/json" } })) as typeof fetch;
   await assert.rejects(() => callMaterialDraftAi({ name: definition.name, scope: definition.defaultScope, audience: definition.defaultAudience, definition, enterprise, activities: [activity], baselineDraft: "单位：示例科技有限公司；联系：privacy@example.com" }, config, fetchMock, 1000), /未保留必要脱敏占位符/);

@@ -49,6 +49,19 @@ test("处理活动清单按场景输出信息、目的、系统和接收方", ()
   assert.match(result, /privacy@example.com/);
 });
 
+test("材料按法定类别输出敏感个人信息，不回退为普通信息字段", () => {
+  const sensitiveActivity: ProcessingActivity = {
+    ...activity,
+    facts: { ...activity.facts, sensitiveInformation: "yes", sensitiveCategories: ["financial_account"] }
+  };
+  const result = generateMaterialDraft({
+    type: "sensitive_consent", name: "敏感个人信息单独同意书", scope: "工资账户处理",
+    audience: "员工", enterprise, activities: [sensitiveActivity]
+  });
+  assert.match(result, /金融账户信息/);
+  assert.doesNotMatch(result, /姓名和联系方式、单位和职务/);
+});
+
 test("员工告知与候选人告知使用不同的处理范围说明", () => {
   const employee = generateMaterialDraft({ type: "employee_notice", name: "员工个人信息告知", scope: "员工管理", audience: "员工", enterprise, activities: [activity] });
   const candidate = generateMaterialDraft({ type: "candidate_notice", name: "候选人个人信息告知", scope: "招聘管理", audience: "候选人", enterprise, activities: [activity] });

@@ -91,7 +91,8 @@ export const smallProcessorScenarios: SmallProcessorScenario[] = [
       informationTypes: ["身份信息", "健康证明"],
       purposes: ["员工管理"],
       systems: ["HR或薪酬系统"],
-      sensitiveInformation: "yes"
+      sensitiveInformation: "yes",
+      sensitiveCategories: ["medical_health"]
     },
     expectedQualification: "needs_review",
     expectedReadyForTriage: true,

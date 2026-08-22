@@ -223,16 +223,17 @@
     {
       "code": "Q-RISK-001",
       "version": 1,
-      "prompt": "是否处理以下较敏感的信息？",
+      "prompt": "依据《个人信息保护法》第二十八条，是否处理以下敏感个人信息？分类边界参照 GB/T 45574—2025 第4章及附录A。",
       "answerType": "multiple_with_none_unknown",
       "required": true,
       "options": [
-        { "value": "identity_document", "label": "身份证件或特定身份" },
-        { "value": "financial_account", "label": "工资卡或其他金融账户" },
-        { "value": "health", "label": "健康或体检信息" },
-        { "value": "biometric", "label": "人脸、指纹或其他生物识别" },
-        { "value": "precise_location", "label": "精确位置或行踪轨迹" },
-        { "value": "religious_belief", "label": "宗教信仰" },
+        { "value": "biometric", "label": "生物识别信息（普通照片不当然属于本类）" },
+        { "value": "religious_belief", "label": "宗教信仰信息" },
+        { "value": "specific_identity", "label": "特定身份信息（普通岗位不当然属于本类）" },
+        { "value": "medical_health", "label": "医疗健康信息" },
+        { "value": "financial_account", "label": "金融账户信息" },
+        { "value": "location_trajectory", "label": "行踪轨迹或精准定位（粗略位置不属于精准定位）" },
+        { "value": "other_sensitive", "label": "其他符合法定危害标准的信息" },
         { "value": "minor", "label": "不满十四周岁未成年人信息" },
         { "value": "none", "label": "以上都没有" },
         { "value": "unknown", "label": "不清楚" }
@@ -694,7 +695,7 @@
     {
       "code": "Q-SENS-001",
       "version": 1,
-      "prompt": "请确认具体的敏感个人信息类别和字段。",
+      "prompt": "请按《个人信息保护法》第二十八条确认具体类别和字段；GB/T 45574—2025 仅用于细化分类和边界，不扩大法定范围。",
       "answerType": "sensitive_data_table",
       "required": true,
       "actions": [{ "type": "confirm_sensitive_data_fields" }],

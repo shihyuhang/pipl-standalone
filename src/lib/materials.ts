@@ -1,4 +1,6 @@
 import type { EnterpriseProfile, MaterialAudienceGroup, ProcessingActivity } from "./types";
+import { sensitiveCategoryLabels } from "./sensitive-info.ts";
+import { activityDisplayName } from "./activity-label.ts";
 
 export type MaterialCategory = "external" | "internal" | "agreement" | "register" | "record";
 export type MaterialRequirement = "basic" | "conditional" | "evidence";
@@ -24,7 +26,7 @@ export const materialCatalog: MaterialDefinition[] = [
   { code: "candidate_notice", name: "候选人个人信息告知", description: "向候选人说明简历收集、招聘筛选、面试、录用及人才库中的个人信息处理。", category: "external", audienceGroups: ["candidate"], defaultAudience: "候选人和求职者", defaultScope: "简历投递、招聘筛选、面试、录用和人才库管理", defaultModules: ["招聘流程", "信息来源", "人才库", "保存期限", "个人权利"], requirement: "basic", legalBasis: "《个人信息保护法》第十七条" },
   { code: "visitor_notice", name: "访客个人信息告知", description: "向访客说明登记、门禁、公共区域视频和现场安全管理中的个人信息处理。", category: "external", audienceGroups: ["visitor"], defaultAudience: "访客和现场人员", defaultScope: "访客登记、门禁、公共区域视频和现场安全管理", defaultModules: ["访客登记", "门禁与视频", "保存期限", "个人权利"], requirement: "basic", legalBasis: "《个人信息保护法》第十七条、第二十六条" },
   { code: "minor_notice", name: "未成年人个人信息专门处理规则", description: "面向不满十四周岁未成年人及其监护人的专门规则。", category: "external", audienceGroups: ["consumer"], defaultAudience: "不满十四周岁未成年人及其监护人", defaultScope: "涉及不满十四周岁未成年人个人信息的产品或服务", defaultModules: ["监护人同意", "处理必要性", "专门保护措施", "个人权利"], requirement: "conditional", trigger: "业务涉及不满十四周岁未成年人时", legalBasis: "《个人信息保护法》第三十一条；《网络数据安全管理条例》第二十一条" },
-  { code: "sensitive_consent", name: "敏感个人信息单独同意书", description: "说明敏感信息处理的必要性和影响，并单独取得同意。", category: "external", audienceGroups: ["consumer", "business_contact", "employee", "candidate", "visitor"], defaultAudience: "相关个人", defaultScope: "涉及敏感个人信息的处理活动", defaultModules: ["敏感信息种类", "处理必要性", "权益影响", "保护措施", "单独同意"], requirement: "conditional", trigger: "基于同意处理敏感个人信息时", legalBasis: "《个人信息保护法》第二十九条、第三十条" },
+  { code: "sensitive_consent", name: "敏感个人信息单独同意书", description: "按法定类别说明敏感个人信息处理的必要性和影响，并在以同意为处理基础时单独取得同意。", category: "external", audienceGroups: ["consumer", "business_contact", "employee", "candidate", "visitor"], defaultAudience: "相关个人", defaultScope: "涉及敏感个人信息的处理活动", defaultModules: ["敏感信息种类", "处理必要性", "权益影响", "保护措施", "单独同意"], requirement: "conditional", trigger: "基于同意处理敏感个人信息时", legalBasis: "《个人信息保护法》第二十八条至第三十条；GB/T 45574—2025 第4章、第5章" },
   { code: "cross_border_notice_consent", name: "个人信息出境告知与单独同意", description: "记录境外接收方、出境目的和权利渠道；以同意为处理基础时取得单独同意。", category: "external", audienceGroups: ["consumer", "business_contact", "employee", "candidate", "visitor"], defaultAudience: "个人信息出境涉及的相关个人", defaultScope: "向境外提供个人信息的业务", defaultModules: ["境外接收方", "出境目的", "信息种类", "保存地点", "权利渠道", "单独同意"], requirement: "conditional", trigger: "向境外提供个人信息时；出境程序豁免不当然免除告知，以同意为处理基础时仍需单独同意", legalBasis: "《个人信息保护法》第三十九条；数据出境相关规定" },
   { code: "incident_notification", name: "个人信息安全事件通知", description: "发生安全事件后向受影响个人说明风险和补救措施。", category: "external", audienceGroups: ["consumer", "business_contact", "employee", "candidate", "visitor"], defaultAudience: "受安全事件影响的个人", defaultScope: "已经或可能造成个人权益危害的个人信息安全事件", defaultModules: ["事件情况", "可能影响", "补救措施", "个人防范建议", "联系渠道"], requirement: "conditional", trigger: "发生或可能发生泄露、篡改、丢失且依法需要通知个人时", legalBasis: "《个人信息保护法》第五十七条；《网络数据安全管理条例》第十一条" },
   { code: "internal_policy", name: "个人信息保护内部管理要求", description: "明确负责人、员工操作边界、权限、保存删除和日常检查要求。", category: "internal", audienceGroups: ["internal"], defaultAudience: "本单位员工及管理人员", defaultScope: "本单位全部个人信息处理活动", defaultModules: ["职责分工", "最小必要", "权限管理", "保存删除", "检查整改"], requirement: "basic", legalBasis: "《个人信息保护法》第五十一条；小型处理者简化措施规定" },
@@ -47,7 +49,11 @@ const yn = (value: string) => value === "yes" ? "涉及" : value === "no" ? "不
 function activitySections(activities: ProcessingActivity[]) {
   return activities.map((activity, index) => {
     const facts = activity.facts;
-    return `### ${index + 1}. ${activity.name}\n\n- 涉及人员：${join(facts.dataSubjects)}\n- 场景涉及人数：${facts.approximatePersonCount === null ? "待确认" : `约 ${facts.approximatePersonCount} 人`}\n- 使用的个人信息：${join(facts.informationTypes)}\n- 使用目的：${join(facts.purposes)}\n- 信息来源：${join(facts.collectionChannels)}\n- 保存或使用位置：${join(facts.systems)}\n- 可访问岗位：${join(facts.accessRoles)}\n- 系统运维方：${join(facts.systemOperators)}\n- 外部接收方：${join(facts.recipients, "不向外部提供") }\n- 保存期限或删除条件：${facts.retentionPeriod || "待确认"}\n- 到期处理方式：${facts.deletionMethod || "待确认"}\n- 个人权利渠道：${facts.rightsChannel || "待确认"}\n- 自动化决策：${yn(facts.automatedDecision)}\n- 敏感个人信息：${yn(facts.sensitiveInformation)}\n- 不满十四周岁未成年人：${yn(facts.minorsInvolved)}\n- 境外存储或访问：${yn(facts.crossBorderAccess)}`;
+    const sensitiveLabels = sensitiveCategoryLabels(facts.sensitiveCategories);
+    const sensitiveSummary = facts.sensitiveInformation === "yes"
+      ? join(sensitiveLabels, facts.minorsInvolved === "yes" ? "不满十四周岁未成年人个人信息" : "类别待负责人确认")
+      : yn(facts.sensitiveInformation);
+    return `### ${index + 1}. ${activityDisplayName(activity)}\n\n- 涉及人员：${join(facts.dataSubjects)}\n- 场景涉及人数：${facts.approximatePersonCount === null ? "待确认" : `约 ${facts.approximatePersonCount} 人`}\n- 使用的个人信息：${join(facts.informationTypes)}\n- 使用目的：${join(facts.purposes)}\n- 信息来源：${join(facts.collectionChannels)}\n- 保存或使用位置：${join(facts.systems)}\n- 可访问岗位：${join(facts.accessRoles)}\n- 系统运维方：${join(facts.systemOperators)}\n- 外部接收方：${join(facts.recipients, "不向外部提供") }\n- 保存期限或删除条件：${facts.retentionPeriod || "待确认"}\n- 到期处理方式：${facts.deletionMethod || "待确认"}\n- 个人权利渠道：${facts.rightsChannel || "待确认"}\n- 自动化决策：${yn(facts.automatedDecision)}\n- 敏感个人信息：${sensitiveSummary}\n- 不满十四周岁未成年人：${yn(facts.minorsInvolved)}\n- 境外存储或访问：${yn(facts.crossBorderAccess)}`;
   }).join("\n\n");
 }
 
@@ -73,13 +79,13 @@ export function generateMaterialDraft(input: {
   }
 
   if (type === "vendor_register") {
-    const rows = activities.map((activity, index) => `${index + 1}. ${activity.name}：${join(activity.facts.recipients, "未记录外部接收方")}；涉及系统：${join(activity.facts.systems)}`).join("\n");
+    const rows = activities.map((activity, index) => `${index + 1}. ${activityDisplayName(activity)}：${join(activity.facts.recipients, "未记录外部接收方")}；涉及系统：${join(activity.facts.systems)}`).join("\n");
     return `${header(name, enterprise)}\n\n## 一、清单范围\n\n适用范围：${scope}\n\n## 二、按业务汇总\n\n${rows || "尚未选择业务。"}\n\n## 三、逐家确认事项\n\n对每个外部服务商或接收方，应补充确认其单位名称、处理目的、信息范围、处理方式、安全措施、保存期限、删除安排以及是否存在境外访问。\n\n## 四、维护要求\n\n新增或更换服务商前更新本清单；无法确认接收方或处理边界时，先转负责人复核。`;
   }
 
   if (type === "processor_agreement" || type === "joint_processing_agreement") {
     const isJoint = type === "joint_processing_agreement";
-    const activityRows = activities.map((activity, index) => `${index + 1}. ${activity.name}：处理目的为${join(activity.facts.purposes)}；涉及${join(activity.facts.informationTypes)}；现有接收方或服务商为${join(activity.facts.recipients, "待填写合作方")}。`).join("\n");
+    const activityRows = activities.map((activity, index) => `${index + 1}. ${activityDisplayName(activity)}：处理目的为${join(activity.facts.purposes)}；涉及${join(activity.facts.informationTypes)}；现有接收方或服务商为${join(activity.facts.recipients, "待填写合作方")}。`).join("\n");
     return `${header(name, enterprise)}\n\n甲方：${enterprise.legalName || "待填写"}\n\n乙方：待填写合作方名称\n\n## 一、约定范围\n\n${scope}。\n\n${activityRows || "待选择适用业务。"}\n\n## 二、${isJoint ? "共同处理安排" : "委托处理要求"}\n\n双方应逐项确认处理目的、期限、方式、个人信息种类、处理地点和可访问人员。未经书面确认，不得扩大处理目的或信息范围。\n\n## 三、双方责任\n\n${isJoint ? "双方应明确各自负责的告知、同意、个人权利响应、安全事件处置和记录保存职责，并共同保障个人合法权益。" : "乙方仅按甲方书面指示处理个人信息，采取必要安全措施，协助响应个人权利请求和安全事件；甲方有权了解、检查乙方履约情况。"}\n\n## 四、分包、提供与出境\n\n未经另一方书面同意，不得转委托、向其他单位提供个人信息或者安排境外存储和访问。确有需要的，应在实施前补充约定并完成适用程序。\n\n## 五、返还、删除和证明\n\n约定终止或处理目的完成后，应按要求返还、删除或匿名化个人信息，并提供完成证明；依法必须保存的，仅限存储和必要安全保护。\n\n## 六、安全事件\n\n发现或者可能发生泄露、篡改、丢失时，应立即通知另一方，采取止损和补救措施，保留处置记录，并配合依法通知个人和报告有关部门。\n\n## 七、其他\n\n生效日期、有效期、违约责任、争议解决及签署信息由双方结合实际合同补充。`;
   }
 
@@ -100,7 +106,7 @@ export function generateMaterialDraft(input: {
   }
 
   if (type === "sensitive_consent") {
-    return `${header(name, enterprise)}\n\n## 一、需要单独确认的处理\n\n适用对象：${audience}。适用范围：${scope}。\n\n${activities.map(item => `### ${item.name}\n\n- 敏感个人信息：${join(item.facts.informationTypes)}\n- 处理目的：${join(item.facts.purposes)}\n- 处理必要性：待结合实际业务补充\n- 对个人权益的影响：待补充\n- 保护措施：访问权限、加密或去标识化、保存期限控制及其他实际措施待确认`).join("\n\n")}\n\n## 二、单独同意\n\n本人已经阅读并理解上述敏感个人信息处理事项，并针对该特定处理自愿、明确作出单独同意。\n\n个人确认：__________  日期：__________\n\n## 三、撤回方式\n\n可以通过${contact}撤回同意。撤回不影响撤回前已经开展的合法处理。`;
+    return `${header(name, enterprise)}\n\n## 一、需要单独确认的处理\n\n适用对象：${audience}。适用范围：${scope}。\n\n${activities.map(item => `### ${item.name}\n\n- 敏感个人信息：${join(sensitiveCategoryLabels(item.facts.sensitiveCategories), item.facts.minorsInvolved === "yes" ? "不满十四周岁未成年人个人信息" : "类别待负责人确认")}\n- 处理目的：${join(item.facts.purposes)}\n- 处理必要性：待结合实际业务补充\n- 对个人权益的影响：待补充\n- 保护措施：访问权限、加密或去标识化、保存期限控制及其他实际措施待确认`).join("\n\n")}\n\n## 二、单独同意\n\n本人已经阅读并理解上述敏感个人信息处理事项，并针对该特定处理自愿、明确作出单独同意。\n\n个人确认：__________  日期：__________\n\n## 三、撤回方式\n\n可以通过${contact}撤回同意。撤回不影响撤回前已经开展的合法处理。`;
   }
 
   if (type === "cross_border_notice_consent") {

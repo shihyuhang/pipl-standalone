@@ -3,6 +3,7 @@ import type { ActivityFacts, EnterpriseProfile } from "./types";
 const factLabels: Record<keyof ActivityFacts, string> = {
   dataSubjects: "涉及人员",
   informationTypes: "个人信息种类",
+  informationDetails: "具体字段或资料名称",
   purposes: "处理目的",
   collectionChannels: "收集方式和来源",
   systems: "使用系统和保存位置",
@@ -15,6 +16,7 @@ const factLabels: Record<keyof ActivityFacts, string> = {
   rightsChannel: "个人权利渠道",
   automatedDecision: "自动化决策",
   sensitiveInformation: "敏感个人信息",
+  sensitiveCategories: "敏感个人信息法定类别",
   minorsInvolved: "不满十四周岁未成年人",
   crossBorderAccess: "境外存储或访问",
   notes: "业务补充说明",
@@ -24,6 +26,7 @@ const factLabels: Record<keyof ActivityFacts, string> = {
 const sectionMap: Partial<Record<keyof ActivityFacts, string[]>> = {
   dataSubjects: ["适用对象和范围", "个人信息处理活动"],
   informationTypes: ["个人信息处理活动", "敏感个人信息"],
+  informationDetails: ["个人信息处理活动", "敏感个人信息"],
   purposes: ["个人信息处理活动"],
   collectionChannels: ["个人信息处理活动"],
   systems: ["个人信息处理活动", "保存和安全"],
@@ -36,6 +39,7 @@ const sectionMap: Partial<Record<keyof ActivityFacts, string[]>> = {
   rightsChannel: ["个人权利", "如何联系我们"],
   automatedDecision: ["自动化决策"],
   sensitiveInformation: ["敏感个人信息"],
+  sensitiveCategories: ["敏感个人信息"],
   minorsInvolved: ["不满十四周岁未成年人"],
   crossBorderAccess: ["向境外提供个人信息"]
 };

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AlertTriangle, ArrowRight, Building2, CheckCircle2, ClipboardList, FileText, Plus, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
+import { getComplianceProgress } from "@/lib/dashboard-progress";
+import { assessQualification } from "@/lib/qualification";
 import type { DashboardData } from "@/lib/types";
 
 export default function DashboardPage() {
@@ -16,13 +18,34 @@ export default function DashboardPage() {
   if (!data.enterprise.onboardingCompleted) return <Welcome />;
 
   const openTasks = data.tasks.filter(t => t.status !== "completed").slice(0, 4);
+  const staleDocuments = data.documents.filter(d => d.healthStatus === "needs_review" || d.healthStatus === "overdue");
+  const qualification = assessQualification(data.enterprise);
+  const progress = getComplianceProgress({
+    onboardingCompleted: data.enterprise.onboardingCompleted,
+    activityCount: data.counts.activities,
+    hasPublishedDocument: data.documents.some(document => Boolean(document.currentVersionId)),
+    signedAuditCount: data.counts.signedAudits,
+    followUpRecordCount: data.counts.followUpRecords
+  });
   return <>
     <section className="page-heading"><div><p className="eyebrow">工作台首页</p><h1>您好，{data.enterprise.legalName}</h1><p>根据业务变化，系统持续整理适用义务、材料和待办。</p></div><Link className="button secondary" href="/business"><Plus size={17} /> 记录业务</Link></section>
 
-    <section className={`hero-status tone-${data.enterprise.qualificationStatus}`}>
-      <div className="hero-status-icon">{data.enterprise.qualificationStatus === "eligible" ? <CheckCircle2 /> : <ShieldAlert />}</div>
-      <div className="hero-status-copy"><span>当前工作路径</span><h2>{data.enterprise.qualificationSummary}</h2><StatusBadge status={data.enterprise.qualificationStatus} />{data.enterprise.qualificationStatus === "conditional" && <p className="hero-status-hint">还需确认人数口径和处理角色后才能形成正式判断。</p>}{data.enterprise.qualificationStatus === "needs_review" && <p className="hero-status-hint">涉及敏感信息、未成年人或出境，需负责人专项确认。</p>}{data.enterprise.qualificationStatus === "out_of_scope" && <p className="hero-status-hint">人数已达 10 万，建议转专业人员评估。</p>}</div>
+    {staleDocuments.length > 0 && <Link href="/documents" className="alert warning change-alert"><AlertTriangle size={16} /><div><strong>单位或业务情况已更新</strong><span>{staleDocuments.length} 份合规材料需复核更新，涉及：{staleDocuments.slice(0, 2).map(d => d.name).join("、")}{staleDocuments.length > 2 ? ` 等 ${staleDocuments.length} 份` : ""}。</span></div><ArrowRight size={15} /></Link>}
+
+    <section className={`hero-status tone-${qualification.status}`}>
+      <div className="hero-status-icon">{qualification.status === "eligible" ? <CheckCircle2 /> : <ShieldAlert />}</div>
+      <div className="hero-status-copy"><span>当前工作路径</span><h2>{qualification.summary}</h2><StatusBadge status={qualification.status} />{qualification.status === "conditional" && <p className="hero-status-hint">还需确认人数口径和处理角色后才能形成正式判断。</p>}{qualification.status === "needs_review" && <p className="hero-status-hint">涉及敏感信息、未成年人或出境，需负责人专项确认。</p>}{qualification.status === "out_of_scope" && <p className="hero-status-hint">人数已达 10 万，建议转专业人员评估。</p>}</div>
       <Link href="/business" className="button secondary small">单位情况有变化？前往修改 <ArrowRight size={15} /></Link>
+    </section>
+
+    <section className="card progress-card">
+      <div className="progress-card-label">合规建设进度</div>
+      <div className="progress-steps">
+        {progress.map((step, index) => <div className="progress-fragment" key={step.code}>
+          {index > 0 && <div className={`progress-line ${step.status === "done" ? "done" : step.status === "active" ? "active" : ""}`} />}
+          <div className={`progress-step ${step.status}`}><div className="progress-dot">{step.status === "done" ? "✓" : index + 1}</div><span>{step.label}</span></div>
+        </div>)}
+      </div>
     </section>
 
     <div className="metric-grid">

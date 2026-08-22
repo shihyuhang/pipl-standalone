@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseDifyJsonObject, stabilizeTriageStatus } from "../src/lib/dify.ts";
+import { buildAiConfirmedFacts, parseDifyJsonObject, stabilizeTriageStatus } from "../src/lib/dify.ts";
 import { normalizeChinaLegalText, normalizeTriageFinding } from "../src/lib/legal-language.ts";
 
 test("解析标准 Dify JSON 输出", () => {
@@ -33,6 +33,10 @@ test("拒绝模型返回两个相互竞争的 JSON 结果", () => {
 
 test("拒绝不完整 JSON", () => {
   assert.throws(() => parseDifyJsonObject('{"status":"needs_input"'), /结构化结果不完整/);
+});
+
+test("快速分流上下文把敏感类别转换为正式名称", () => {
+  assert.deepEqual(buildAiConfirmedFacts({ sensitiveInformation: "yes", sensitiveCategories: ["biometric", "location_trajectory"], minorsInvolved: "no" }).sensitiveCategories, ["生物识别信息", "行踪轨迹或精准定位"]);
 });
 
 test("只有L0或L1建议时不阻断普通业务", () => {

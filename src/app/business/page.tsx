@@ -4,25 +4,18 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle, ArrowRight, BriefcaseBusiness, CheckCircle2, ClipboardCheck, ClipboardList,
-  Pencil, Plus, RefreshCw, Trash2
+  Pencil, Plus, RefreshCw, Sparkles, Trash2
 } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge } from "@/components/StatusBadge";
 import { emptyActivityFacts } from "@/lib/activity-facts";
+import { activityOptionGroups as optionGroups, applyScenarioDefaults, emptyCustomFactInputs, getScenarioGuidance, type GuidedFactField } from "@/lib/scenario-guidance";
+import { sensitiveCategoryDefinitions } from "@/lib/sensitive-info";
+import type { SensitiveIdentificationResult } from "@/lib/sensitive-identification";
+import { activityDisplayName } from "@/lib/activity-label";
 import type { ActivityFacts, AssessmentRun, EnterpriseProfile, FactAnswer, ProcessingActivity } from "@/lib/types";
 
 type Scenario = { code: string; name: string; description: string; recommended: string };
-const optionGroups = {
-  dataSubjects: ["客户联系人", "供应商联系人", "消费者或会员", "员工", "求职者", "访客", "其他人员"],
-  informationTypes: ["姓名和联系方式", "单位和职务", "身份证件", "订单和交易", "薪酬和考勤", "地址或位置", "账号或设备信息", "照片或视频", "其他信息"],
-  purposes: ["履行项目或合同", "客户和供应商联系", "员工管理", "提供产品或服务", "安全和门禁", "营销活动", "履行法定义务"],
-  collectionChannels: ["本人主动提供", "企业客户或供应商提供", "网站或小程序", "邮件或电话", "设备自动采集", "公开渠道"],
-  systems: ["邮箱或通讯工具", "Excel或本地文件", "网站后台", "CRM或ERP", "HR或薪酬系统", "云端SaaS", "门禁或监控", "纸质文件"],
-  recipients: ["不向外部提供", "仅必要服务商", "集团内其他主体", "客户或合作方", "政府或法定机构", "暂不清楚"],
-  accessRoles: ["业务经办人员", "部门负责人", "销售或客户服务", "人力资源岗位", "财务或行政人员", "系统管理员", "暂不清楚"],
-  systemOperators: ["本单位系统管理员", "云服务商", "外包服务人员", "集团信息技术人员", "不涉及专门运维", "暂不清楚"]
-} satisfies Record<string, string[]>;
-
 const answerOptions: Array<{ value: Exclude<FactAnswer, "">; label: string }> = [
   { value: "no", label: "不涉及" },
   { value: "yes", label: "涉及" },
@@ -40,7 +33,6 @@ const businessModelOptions = [["B2B", "主要面向企业"], ["B2C", "主要面�
 const ownershipOptions = [["domestic", "不是"], ["foreign_invested", "外商投资企业"], ["foreign_branch", "外国企业在华分支"], ["unknown", "不清楚"]];
 const processingRoleOptions = [["independent_processor", "主要由我们自己决定"], ["entrusted_processor", "主要按照客户或其他公司的指示处理"], ["mixed", "两种情况都有"], ["unknown", "不清楚"]];
 const subjectOptions = [["employee", "在职员工"], ["candidate", "招聘候选人"], ["customer_contact", "客户企业联系人"], ["supplier_contact", "供应商联系人"], ["consumer", "消费者或会员"], ["visitor", "访客"]];
-const sensitiveOptions = [["identity_document", "身份证件"], ["financial_account", "金融账户"], ["health", "健康信息"], ["biometric", "人脸或指纹"], ["precise_location", "精确位置"]];
 const ynOptions = [["no", "没有"], ["yes", "有"], ["unknown", "不清楚"]];
 const industrySuggestions = ["软件和信息技术服务", "专业服务", "制造业", "批发和零售", "住宿和餐饮", "租赁和商务服务", "房地产和物业管理", "交通运输和物流", "教育培训", "医疗健康", "文化、体育和娱乐"];
 
@@ -67,7 +59,7 @@ const factRequirements: FactRequirement[] = [
   { no: 10, step: 3, label: "通常保存多长时间", filled: f => f.retentionPeriod.trim().length > 0 },
   { no: 11, step: 3, label: "保存期满后怎样处理", filled: f => f.deletionMethod.trim().length > 0 },
   { no: 12, step: 3, label: "个人联系渠道", filled: f => f.rightsChannel.trim().length > 0 },
-  { no: 13, step: 4, label: "是否包含敏感个人信息", filled: f => f.sensitiveInformation !== "" },
+  { no: 13, step: 4, label: "是否包含敏感个人信息", filled: f => f.sensitiveInformation !== "" && (f.sensitiveInformation !== "yes" || (f.sensitiveCategories?.length || 0) > 0 || f.minorsInvolved === "yes") },
   { no: 14, step: 4, label: "是否涉及未成年人", filled: f => f.minorsInvolved !== "" },
   { no: 15, step: 4, label: "是否可能从境外存储或访问", filled: f => f.crossBorderAccess !== "" },
   { no: 16, step: 4, label: "是否有自动化决策", filled: f => f.automatedDecision !== "" }
@@ -88,6 +80,12 @@ export default function BusinessPage() {
   const [triage, setTriage] = useState<AssessmentRun | null>(null);
   const [editing, setEditing] = useState<ProcessingActivity | null>(null);
   const [facts, setFacts] = useState<ActivityFacts>(emptyActivityFacts());
+  const [activityRemark, setActivityRemark] = useState("");
+  const [customInputs, setCustomInputs] = useState(emptyCustomFactInputs());
+  const [sensitiveAnalysis, setSensitiveAnalysis] = useState<SensitiveIdentificationResult | null>(null);
+  const [sensitiveChecking, setSensitiveChecking] = useState(false);
+  const [sensitiveError, setSensitiveError] = useState("");
+  const [dismissedSensitive, setDismissedSensitive] = useState<string[]>([]);
   const [factStep, setFactStep] = useState(1);
   const [defaultRightsChannel, setDefaultRightsChannel] = useState("");
   const [error, setError] = useState("");
@@ -129,17 +127,26 @@ export default function BusinessPage() {
   const isMissing = (no: number) => missingFacts.some(item => item.no === no);
 
   const add = async (scenario: Scenario) => {
-    setBusy(scenario.code);
+    setBusy(scenario.code); setError("");
     const response = await fetch("/api/scenarios", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ scenarioCode: scenario.code, name: scenario.name, description: scenario.description })
     });
-    if (response.ok) { await load(); setAdding(false); }
+    const payload = await response.json().catch(() => ({}));
+    if (response.ok) {
+      const created = payload as ProcessingActivity;
+      setActivities(current => [...current, created]);
+      setAdding(false);
+      openFacts(created, true);
+      void load();
+    } else {
+      setError(payload.message || "添加业务失败，请稍后重试。");
+    }
     setBusy("");
   };
 
   const remove = async (activity: ProcessingActivity) => {
-    if (!confirm(`确认删除“${activity.name}”？\n\n未被引用的业务会连同对应的“完善业务情况”待办一起删除。已有检查记录或合规材料引用时，系统会阻止删除。`)) return;
+    if (!confirm(`确认删除“${activityDisplayName(activity)}”？\n\n未被引用的业务会连同对应的“完善业务情况”待办一起删除。已有检查记录或合规材料引用时，系统会阻止删除。`)) return;
     setBusy(`delete-${activity.id}`); setError("");
     const response = await fetch("/api/scenarios", {
       method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: activity.id })
@@ -150,33 +157,88 @@ export default function BusinessPage() {
     setBusy("");
   };
 
-  const openFacts = (activity: ProcessingActivity) => {
+  const openFacts = (activity: ProcessingActivity, useScenarioDefaults = false) => {
     setError("");
     setFactStep(1);
     setEditing(activity);
-    setFacts({
+    setActivityRemark(String(activity.remark || ""));
+    const editableFacts = {
       ...emptyActivityFacts(), ...activity.facts,
       dataSubjects: [...activity.facts.dataSubjects], informationTypes: [...activity.facts.informationTypes],
       purposes: [...activity.facts.purposes], collectionChannels: [...activity.facts.collectionChannels],
       systems: [...activity.facts.systems], recipients: [...activity.facts.recipients],
       accessRoles: [...activity.facts.accessRoles], systemOperators: [...activity.facts.systemOperators],
+      sensitiveCategories: [...(activity.facts.sensitiveCategories || [])],
       rightsChannel: activity.facts.rightsChannel || defaultRightsChannel
-    });
+    };
+    setFacts(useScenarioDefaults ? applyScenarioDefaults(editableFacts, activity.scenarioCode) : editableFacts);
+    setCustomInputs(emptyCustomFactInputs());
+    setSensitiveAnalysis(null);
+    setSensitiveError("");
+    setDismissedSensitive([]);
   };
 
   const toggle = (field: keyof typeof optionGroups, value: string) => {
+    if (["dataSubjects", "informationTypes", "purposes", "systems"].includes(field)) {
+      setSensitiveAnalysis(null); setSensitiveError(""); setDismissedSensitive([]);
+    }
     setFacts(current => {
       const values = current[field] as string[];
       return { ...current, [field]: values.includes(value) ? values.filter(item => item !== value) : [...values, value] };
     });
   };
 
+  const addCustomOption = (field: GuidedFactField) => {
+    const value = customInputs[field].trim();
+    if (!value) return;
+    setFacts(current => {
+      const values = current[field] as string[];
+      return values.includes(value) || values.length >= 30 ? current : { ...current, [field]: [...values, value] };
+    });
+    setCustomInputs(current => ({ ...current, [field]: "" }));
+  };
+
+  const toggleSensitiveCategory = (code: string) => setFacts(current => {
+    const categories = current.sensitiveCategories || [];
+    const next = categories.includes(code) ? categories.filter(item => item !== code) : [...categories, code];
+    return { ...current, sensitiveCategories: next, sensitiveInformation: next.length > 0 || current.minorsInvolved === "yes" ? "yes" : "" };
+  });
+
+  const runSensitiveIdentification = async () => {
+    if (!editing) return;
+    setSensitiveChecking(true); setSensitiveError(""); setDismissedSensitive([]);
+    const response = await fetch("/api/ai/sensitive-identification", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scenarioCode: editing.scenarioCode,
+        scenarioName: editing.name,
+        scenarioDescription: editing.description,
+        dataSubjects: facts.dataSubjects,
+        informationTypes: facts.informationTypes,
+        informationDetails: facts.informationDetails || "",
+        purposes: facts.purposes,
+        systems: facts.systems,
+        minorsInvolved: facts.minorsInvolved
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (response.ok) setSensitiveAnalysis(payload as SensitiveIdentificationResult);
+    else setSensitiveError(payload.message || "暂时无法完成敏感个人信息辅助识别。");
+    setSensitiveChecking(false);
+  };
+
+  const acceptSensitiveCandidate = (category: string) => setFacts(current => ({
+    ...current,
+    sensitiveInformation: "yes",
+    sensitiveCategories: [...new Set([...(current.sensitiveCategories || []), category])]
+  }));
+
   const saveFacts = async (closeAfter = true) => {
     if (!editing) return false;
     setBusy(editing.id); setError("");
     const response = await fetch("/api/scenarios", {
       method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: editing.id, facts })
+      body: JSON.stringify({ id: editing.id, remark: activityRemark, facts })
     });
     const payload = await response.json();
     if (!response.ok) { setError(payload.message || "保存失败，请稍后重试。"); setBusy(""); return false; }
@@ -211,21 +273,35 @@ export default function BusinessPage() {
 
   const missingTag = (no: number) => isMissing(no) ? <span className="fact-missing-tag">待填</span> : null;
 
-  const multiChoice = (no: number, field: keyof typeof optionGroups, title: string, help: string) => (
-    <section className="fact-section">
+  const multiChoice = (no: number, field: GuidedFactField, title: string, help: string) => {
+    const recommended = new Set(getScenarioGuidance(editing?.scenarioCode || "").recommended?.[field] || []);
+    const customPlaceholder: Record<GuidedFactField, string> = {
+      dataSubjects: "补充其他人员，例如加盟商联系人", informationTypes: "补充具体信息，例如职业资格证书",
+      purposes: "补充实际目的，例如售后回访", collectionChannels: "补充其他来源，例如线下活动报名表",
+      systems: "补充实际系统或载体名称", recipients: "补充其他接收方类型",
+      accessRoles: "补充实际可访问岗位", systemOperators: "补充实际运维主体"
+    };
+    return <section className="fact-section">
       <div className="fact-title"><strong>{title}</strong><span className="fact-title-tags">{missingTag(no)}<span>可多选 · 必填</span></span></div>
       <p>{help}</p>
       <div className="tag-choices">
-        {optionGroups[field].map(option => <button type="button" className={(facts[field] as string[]).includes(option) ? "selected" : ""} key={option} onClick={() => toggle(field, option)}>{option}</button>)}
+        {optionGroups[field].map(option => {
+          const selected = (facts[field] as string[]).includes(option);
+          const isRecommended = recommended.has(option);
+          return <button type="button" className={`${selected ? "selected" : ""} ${isRecommended ? "recommended" : ""}`} key={option} onClick={() => toggle(field, option)}>{option}{isRecommended && <small>场景建议</small>}</button>;
+        })}
+        {(facts[field] as string[]).filter(option => !(optionGroups[field] as readonly string[]).includes(option)).map(option => <button type="button" className="selected custom-selected" key={option} onClick={() => toggle(field, option)}>{option}<small>自定义</small></button>)}
       </div>
-    </section>
-  );
+      {recommended.size > 0 && <div className="scenario-guidance-note"><Sparkles size={13} /><span>蓝色为根据“{editing?.name}”给出的常见建议；高置信度项目在新建时已预选，所有项目都可取消或补充。</span></div>}
+      <div className="custom-option-row"><input maxLength={100} value={customInputs[field]} onChange={event => setCustomInputs(current => ({ ...current, [field]: event.target.value }))} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); addCustomOption(field); } }} placeholder={customPlaceholder[field]} /><button type="button" className="button secondary small" disabled={!customInputs[field].trim()} onClick={() => addCustomOption(field)}><Plus size={14} /> 添加自定义</button></div>
+    </section>;
+  };
 
   const answerChoice = (no: number, field: "sensitiveInformation" | "minorsInvolved" | "crossBorderAccess" | "automatedDecision", title: string, help: string) => (
     <section className="fact-section compact-fact">
       <div><strong>{title}{missingTag(no)}</strong><p>{help}</p></div>
       <div className="segmented">
-        {answerOptions.map(option => <button type="button" className={facts[field] === option.value ? "selected" : ""} key={option.value} onClick={() => setFacts(current => ({ ...current, [field]: option.value }))}>{option.label}</button>)}
+        {answerOptions.map(option => <button type="button" className={facts[field] === option.value ? "selected" : ""} key={option.value} onClick={() => setFacts(current => ({ ...current, [field]: option.value, ...(field === "minorsInvolved" && option.value === "yes" ? { sensitiveInformation: "yes" as const } : {}) }))}>{option.label}</button>)}
       </div>
     </section>
   );
@@ -233,7 +309,7 @@ export default function BusinessPage() {
   return <>
     <section className="page-heading">
       <div><p className="eyebrow">我的业务</p><h1>贵单位怎样使用个人信息</h1><p>以业务名称为单位记录个人信息处理情况，系统据此匹配法定义务。</p></div>
-      <button className="button primary" onClick={() => setAdding(true)}><Plus size={17} /> 添加业务</button>
+      <button className="button primary" onClick={() => { setError(""); setAdding(true); }}><Plus size={17} /> 添加业务</button>
     </section>
 
     {enterprise && <section className="card enterprise-card">
@@ -262,7 +338,7 @@ export default function BusinessPage() {
         </div>
         <div className="field"><span>通常由谁决定为什么收集和怎样使用这些信息？</span><div className="segmented">{processingRoleOptions.map(([v, l]) => <button type="button" className={entForm.processingRole === v ? "selected" : ""} key={v} onClick={() => setEnt("processingRole", v)}>{l}</button>)}</div></div>
         <div className="field"><span>目前保存哪些人的信息？</span><div className="tag-choices">{subjectOptions.map(([v, l]) => <button type="button" className={entForm.subjectCategories.includes(v) ? "selected" : ""} key={v} onClick={() => toggleEnt("subjectCategories", v)}>{l}</button>)}</div></div>
-        <div className="field"><span>是否处理以下较敏感的信息？</span><div className="tag-choices">{sensitiveOptions.map(([v, l]) => <button type="button" className={entForm.sensitiveCategories.includes(v) ? "selected" : ""} key={v} onClick={() => toggleEnt("sensitiveCategories", v)}>{l}</button>)}</div><small className="field-help">都不涉及时不用选择。</small></div>
+        <div className="field"><span>根据法定口径，是否处理以下敏感个人信息？</span><div className="sensitive-category-grid compact">{sensitiveCategoryDefinitions.map(item => <button type="button" className={entForm.sensitiveCategories.includes(item.code) ? "selected" : ""} key={item.code} onClick={() => toggleEnt("sensitiveCategories", item.code)}><span><strong>{item.label}</strong></span><small>{item.examples}</small><em>{item.boundary}</em></button>)}</div><small className="field-help">依据《个人信息保护法》第二十八条识别，GB/T 45574—2025 用于细化类别和边界；不满十四周岁未成年人的全部个人信息在下方单独确认。</small></div>
         <div className="two-column-fields">
           <div className="field"><span>可能包括不满十四周岁的未成年人吗？</span><div className="segmented">{ynOptions.map(([v, l]) => <button type="button" className={entForm.minorsPossible === v ? "selected" : ""} key={v} onClick={() => setEnt("minorsPossible", v as EnterpriseProfile["minorsPossible"])}>{l}</button>)}</div></div>
           <div className="field"><span>会存到境外或被境外人员远程查看吗？</span><div className="segmented">{ynOptions.map(([v, l]) => <button type="button" className={entForm.crossBorder === v ? "selected" : ""} key={v} onClick={() => setEnt("crossBorder", v as EnterpriseProfile["crossBorder"])}>{l}</button>)}</div></div>
@@ -286,7 +362,7 @@ export default function BusinessPage() {
       const ready = item.completeness === 1;
       return <article className="activity-row" key={item.id}>
         <div className="activity-main activity-business-cell">
-          <div className="activity-title"><h3>{item.name}</h3></div>
+          <div className="activity-title"><h3>{item.remark || item.name}</h3>{item.remark && <span className="activity-scenario-label">{item.name}</span>}</div>
           <p>{item.description}</p>
         </div>
         <div className="activity-count"><strong>{item.facts.approximatePersonCount === null ? "待确认" : `约 ${item.facts.approximatePersonCount} 人`}</strong><span>{item.facts.dataSubjects.slice(0, 2).join("、") || "尚未填写涉及人员"}</span></div>
@@ -295,15 +371,17 @@ export default function BusinessPage() {
           ? <div className="activity-actions"><button className="button secondary" onClick={() => openFacts(item)}><Pencil size={15} /> 修改</button><button className="button primary" disabled={busy === item.id} onClick={() => assess(item)}>{busy === item.id ? <RefreshCw size={16} className="spin" /> : <ClipboardCheck size={16} />} 检查业务情况</button><button className="icon-button danger-icon" disabled={busy === `delete-${item.id}`} aria-label={`删除${item.name}`} title="删除业务" onClick={() => remove(item)}>{busy === `delete-${item.id}` ? <RefreshCw size={16} className="spin" /> : <Trash2 size={16} />}</button></div>
           : <div className="activity-actions"><button className="button secondary" onClick={() => openFacts(item)}><ClipboardList size={16} /> 完善业务情况</button><button className="icon-button danger-icon" disabled={busy === `delete-${item.id}`} aria-label={`删除${item.name}`} title="删除业务" onClick={() => remove(item)}>{busy === `delete-${item.id}` ? <RefreshCw size={16} className="spin" /> : <Trash2 size={16} />}</button></div>}
       </article>;
-    })}</div> : <EmptyState icon={BriefcaseBusiness} title="还没有记录业务" description="从客户联系人、员工管理或官网联系表单开始，通常10分钟内可以完成首个场景。" action={<button className="button primary" onClick={() => setAdding(true)}><Plus size={17} /> 添加首个业务</button>} />}
+    })}</div> : <EmptyState icon={BriefcaseBusiness} title="还没有记录业务" description="从客户联系人、员工管理或官网联系表单开始，通常10分钟内可以完成首个场景。" action={<button className="button primary" onClick={() => { setError(""); setAdding(true); }}><Plus size={17} /> 添加首个业务</button>} />}
 
     {adding && <div className="modal-backdrop" onClick={() => setAdding(false)}><section className="modal large-modal" onClick={event => event.stopPropagation()}>
       <div className="modal-header"><div><p className="eyebrow">添加业务场景</p><h2>贵单位在哪些工作中使用个人信息？</h2><p>先选最接近的一项，之后可以继续完善。</p></div><button className="icon-button" onClick={() => setAdding(false)}>×</button></div>
+      {error && <div className="alert danger">{error}</div>}
       <div className="scenario-grid">{catalog.map(item => <button disabled={busy === item.code} className={`scenario-choice ${existing.has(item.code) ? "already" : ""}`} key={item.code} onClick={() => add(item)}><div className="scenario-choice-icon"><BriefcaseBusiness /></div><div><strong>{item.name}</strong><span>{item.description}</span>{existing.has(item.code) && <small><CheckCircle2 size={13} /> 已添加，可再次建立独立场景</small>}</div><ArrowRight /></button>)}</div>
     </section></div>}
 
     {editing && <div className="modal-backdrop" onClick={() => setEditing(null)}><section className="modal fact-modal" onClick={event => event.stopPropagation()}>
-      <div className="modal-header"><div><p className="eyebrow">完善业务情况</p><h2>{editing.name}</h2><p>按实际情况填写；企业档案中已有的统一联系渠道会自动带入，同一事实不必重复填写。</p></div><button className="icon-button" onClick={() => setEditing(null)}>×</button></div>
+      <div className="modal-header"><div><p className="eyebrow">完善业务情况</p><h2>{activityDisplayName({ ...editing, remark: activityRemark })}</h2><p>按实际情况填写；企业档案中已有的统一联系渠道会自动带入，同一事实不必重复填写。</p></div><button className="icon-button" onClick={() => setEditing(null)}>×</button></div>
+      <label className="activity-remark-field"><span>场景备注 / 区分名称 <small>选填</small></span><div className="activity-remark-control"><input maxLength={200} value={activityRemark} onChange={event => setActivityRemark(event.target.value)} placeholder={`例如：${editing.name === "员工管理" ? "上海分公司正式员工" : editing.name === "消费者或会员" ? "小程序会员" : "华东区域或具体产品线"}`} /><em>同一类场景可以建立多条记录，用备注区分地区、产品、渠道或人群；不会改变系统对场景类型的判断。</em></div></label>
       <nav className="fact-wizard-nav" aria-label="业务情况填写步骤">
         {factSteps.map(step => <button type="button" key={step.number} className={factStep === step.number ? "active" : factStep > step.number ? "passed" : ""} onClick={() => setFactStep(step.number)}><span>{factStep > step.number ? "✓" : step.number}</span><div><strong>{step.title}</strong><small>{step.description}</small></div></button>)}
       </nav>
@@ -312,6 +390,11 @@ export default function BusinessPage() {
           <div className="fact-step-heading"><span>第 1 步</span><h3>这项业务涉及谁和哪些信息？</h3><p>先记录业务范围，不需要使用法律术语。</p></div>
           {multiChoice(1, "dataSubjects", "1. 这项业务涉及哪些人员？", "例如企业客户联系人、员工或访客。")}
           {multiChoice(2, "informationTypes", "2. 会使用哪些个人信息？", "只选择这项业务实际需要的信息类型。")}
+          <section className="fact-section information-detail-field">
+            <div className="fact-title"><strong>具体字段或资料名称</strong><span>选填 · 建议填写</span></div>
+            <p>用业务语言列出字段名称即可，例如“工资卡号、体检报告、门禁人脸比对”；不要填写任何人的真实号码、姓名或资料内容。系统将在第4步结合用途和处理方式进行 AI 辅助识别。</p>
+            <textarea className="fact-input fact-notes" maxLength={1500} value={facts.informationDetails || ""} onChange={event => { setFacts(current => ({ ...current, informationDetails: event.target.value })); setSensitiveAnalysis(null); setSensitiveError(""); setDismissedSensitive([]); }} placeholder="例如：姓名、工作邮箱、工资卡号、年度体检报告；门禁系统使用人脸进行身份核验" />
+          </section>
           <section className="fact-section"><div className="fact-title"><strong>3. 这项业务大约涉及多少人？</strong><span className="fact-title-tags">{missingTag(3)}<span>必填</span></span></div><p>填写当前大致人数即可；同一个人不要因为出现在多个系统中重复计算。</p><input className="fact-input" type="number" min="0" step="1" value={facts.approximatePersonCount ?? ""} onChange={event => setFacts(current => ({ ...current, approximatePersonCount: event.target.value === "" ? null : Number(event.target.value) }))} placeholder="例如：80" /></section>
         </>}
         {factStep === 2 && <>
@@ -331,7 +414,36 @@ export default function BusinessPage() {
         </>}
         {factStep === 4 && <>
           <div className="fact-step-heading"><span>第 4 步</span><h3>是否存在需要特别关注的情况？</h3><p>不确定时可以选择“不清楚”，系统会保留为待确认事项。</p></div>
-          {answerChoice(13, "sensitiveInformation", "13. 是否包含敏感个人信息？", "例如身份证件、金融账户、健康、生物识别或精确位置。")}
+          <section className="fact-section sensitive-identification">
+            <div className="fact-title"><strong>13. 按法定口径识别敏感个人信息</strong><span className="fact-title-tags">{missingTag(13)}<span>必填</span></span></div>
+            <p>先看具体字段是否属于法定类别，或泄露、非法使用后是否容易侵害人格尊严、危害人身或财产安全。不要仅凭“感觉敏感”判断。</p>
+            <div className="sensitive-ai-box">
+              <div className="sensitive-ai-heading"><div><span className="ai-mark"><Sparkles size={14} /> AI 辅助识别</span><strong>让系统先找出疑似类别、判断边界并提出追问</strong><small>AI 只生成候选建议；只有您点击“确认加入”后才会写入业务记录。</small></div><button type="button" className="button secondary" disabled={sensitiveChecking || (!facts.informationTypes.length && !(facts.informationDetails || "").trim())} onClick={runSensitiveIdentification}>{sensitiveChecking ? <RefreshCw size={15} className="spin" /> : <Sparkles size={15} />} {sensitiveChecking ? "正在识别…" : sensitiveAnalysis ? "重新识别" : "开始AI识别"}</button></div>
+              {sensitiveError && <div className="alert danger">{sensitiveError}</div>}
+              {sensitiveAnalysis && <div className="sensitive-ai-results">
+                <div className="sensitive-ai-meta"><span>{sensitiveAnalysis.source === "ai_assisted" ? "AI + 法定规则联合识别" : "基础规则识别"}</span>{sensitiveAnalysis.redactionCount > 0 && <em>发送前已遮蔽 {sensitiveAnalysis.redactionCount} 处疑似个人信息值</em>}</div>
+                {sensitiveAnalysis.candidates.filter(item => !dismissedSensitive.includes(item.category)).length > 0 ? <div className="sensitive-candidate-list">
+                  {sensitiveAnalysis.candidates.filter(item => !dismissedSensitive.includes(item.category)).map(item => {
+                    const accepted = (facts.sensitiveCategories || []).includes(item.category);
+                    return <article className={`sensitive-candidate confidence-${item.confidence}`} key={item.category}>
+                      <div className="sensitive-candidate-title"><strong>{item.label}</strong><span>{item.basis === "rule_and_ai" ? "AI与规则共同提示" : item.basis === "rule" ? "规则提示" : "AI建议"}</span><em>{item.confidence === "high" ? "较高相关" : item.confidence === "medium" ? "需要确认" : "低置信提示"}</em></div>
+                      {item.evidence.length > 0 && <p><b>触发描述：</b>{item.evidence.join("、")}</p>}
+                      <p>{item.reasoning}</p>
+                      {item.question && <p className="sensitive-candidate-question"><b>请确认：</b>{item.question}</p>}
+                      <div className="sensitive-candidate-actions"><button type="button" className={`button small ${accepted ? "secondary" : "primary"}`} disabled={accepted} onClick={() => acceptSensitiveCandidate(item.category)}>{accepted ? <><CheckCircle2 size={14} /> 已确认加入</> : "确认加入此类别"}</button>{!accepted && <button type="button" className="button small ghost" onClick={() => setDismissedSensitive(current => [...current, item.category])}>暂不采纳</button>}</div>
+                    </article>;
+                  })}
+                </div> : <div className="sensitive-ai-none"><CheckCircle2 size={17} /><span>本次没有识别出明确的敏感类别候选。仍需由您结合实际情况确认，系统不会自动选择“不涉及”。</span></div>}
+                {sensitiveAnalysis.questions.length > 0 && <div className="sensitive-ai-questions"><strong>还需要确认</strong>{sensitiveAnalysis.questions.map((item, index) => <p key={index}>{index + 1}. {item}</p>)}</div>}
+                {sensitiveAnalysis.boundaryObservations.length > 0 && <div className="sensitive-ai-boundaries"><strong>识别边界</strong>{sensitiveAnalysis.boundaryObservations.map((item, index) => <p key={index}>{item}</p>)}</div>}
+                {sensitiveAnalysis.warnings.map((item, index) => <div className="alert warning" key={index}>{item}</div>)}
+              </div>}
+            </div>
+            <div className="sensitive-category-grid">{sensitiveCategoryDefinitions.map(item => <button type="button" className={(facts.sensitiveCategories || []).includes(item.code) ? "selected" : ""} key={item.code} onClick={() => toggleSensitiveCategory(item.code)}><span>{(facts.sensitiveCategories || []).includes(item.code) && <CheckCircle2 size={14} />}<strong>{item.label}</strong></span><small>{item.examples}</small><em>{item.boundary}</em></button>)}</div>
+            <div className="segmented sensitive-result"><button type="button" className={facts.sensitiveInformation === "no" ? "selected" : ""} onClick={() => setFacts(current => ({ ...current, sensitiveCategories: [], sensitiveInformation: "no" }))}>确认均不涉及</button><button type="button" className={facts.sensitiveInformation === "unknown" ? "selected" : ""} onClick={() => setFacts(current => ({ ...current, sensitiveCategories: [], sensitiveInformation: "unknown" }))}>暂不清楚，交负责人确认</button></div>
+            {facts.minorsInvolved === "yes" && <div className="alert warning">本业务涉及不满十四周岁未成年人，其全部个人信息依法属于敏感个人信息，系统已自动纳入敏感信息处理路径。</div>}
+            <small className="field-help">主要依据：《个人信息保护法》第二十八条；GB/T 45574—2025 第4章、附录A。居民身份证照片属于标准列明项，但普通证件号码或证件核验仍应结合泄露后危害判断；普通照片不等于生物识别，粗略位置不等于精准定位或连续轨迹。</small>
+          </section>
           {answerChoice(14, "minorsInvolved", "14. 是否可能涉及不满十四周岁未成年人？", "普通B2B联系人和员工场景通常选择“不涉及”。")}
           {answerChoice(15, "crossBorderAccess", "15. 是否可能从境外存储或访问？", "包括境外云服务，以及境外总部或管理员远程查看。")}
           {answerChoice(16, "automatedDecision", "16. 系统是否会自动决定推荐、价格、资格或其他对个人有影响的结果？", "普通表格、邮箱、CRM记录本身通常不属于这种情况；如果只是人工查看后作决定，请选择“不涉及”。")}

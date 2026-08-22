@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { normalizeChinaLegalText, normalizeTriageFinding } from "./legal-language.ts";
+import { sensitiveCategoryDefinitions } from "./sensitive-info.ts";
 
 export interface TriageContext {
   enterprise: Record<string, unknown>;
@@ -37,8 +38,7 @@ const aiLabels: Record<string, string> = {
   mixed: "不同业务中既有自行决定，也有受托处理",
   employee: "在职员工", candidate: "招聘候选人", customer_contact: "客户企业联系人",
   supplier_contact: "供应商联系人", consumer: "消费者或会员", visitor: "访客",
-  identity_document: "身份证件", financial_account: "金融账户", health: "健康信息",
-  biometric: "人脸或指纹", precise_location: "精确位置",
+  ...Object.fromEntries(sensitiveCategoryDefinitions.map(item => [item.code, item.label])),
   yes: "是", no: "否", unknown: "尚未确认",
   eligible: "适合使用小型处理者工作路径", conditional: "完成待确认事项后再判断",
   needs_review: "存在需要人工复核的事项", out_of_scope: "超出小型处理者工作路径"
@@ -52,6 +52,18 @@ export function buildAiEnterpriseContext(input: Record<string, unknown>): Record
     orgType: label(input.orgType), industry: input.industry, ownership: label(input.ownership), processingRole: label(input.processingRole),
     subjectCategories: labels(input.subjectCategories), sensitiveCategories: labels(input.sensitiveCategories),
     minorsPossible: label(input.minorsPossible), crossBorder: label(input.crossBorder), qualificationStatus: label(input.qualificationStatus)
+  };
+}
+
+export function buildAiConfirmedFacts(input: Record<string, unknown>): Record<string, unknown> {
+  const label = (value: unknown) => aiLabels[String(value)] || value;
+  return {
+    ...input,
+    sensitiveInformation: label(input.sensitiveInformation),
+    sensitiveCategories: Array.isArray(input.sensitiveCategories) ? input.sensitiveCategories.map(label) : [],
+    minorsInvolved: label(input.minorsInvolved),
+    crossBorderAccess: label(input.crossBorderAccess),
+    automatedDecision: label(input.automatedDecision)
   };
 }
 
@@ -117,7 +129,7 @@ function humanizeFindingText(input: unknown): string {
     .replace(/scenario\.facts\./g, "")
     .replace(/enterprise\./g, "");
   const labels: Array<[string, string]> = [
-    ["informationTypes", "使用的个人信息"], ["purposes", "使用目的"], ["dataSubjects", "涉及人员"],
+    ["informationTypes", "使用的个人信息"], ["informationDetails", "具体字段或资料名称"], ["purposes", "使用目的"], ["dataSubjects", "涉及人员"],
     ["subjectCategories", "企业档案中的人员类别"], ["sensitiveInformation", "是否涉及敏感个人信息"],
     ["minorsInvolved", "是否涉及不满十四周岁未成年人"], ["crossBorderAccess", "境外存储或访问"],
     ["recipients", "外部接收方"], ["retentionPeriod", "保存期限"], ["systems", "使用的系统"],
@@ -139,7 +151,18 @@ export function runLocalScenarioTriage(context: TriageContext, warning: string):
   const facts = context.confirmedFacts || {};
   const findings: TriageResult["findings"] = [];
   if (enterprise.crossBorder !== "no" || facts.crossBorderAccess !== "no") findings.push({ title: "确认境外访问情况", description: "请确认信息是否存到境外，或被境外团队、供应商、管理员远程查看。", riskLevel: facts.crossBorderAccess === "yes" ? "L3" : "L2" });
-  if ((Array.isArray(enterprise.sensitiveCategories) && enterprise.sensitiveCategories.length > 0) || facts.sensitiveInformation !== "no") findings.push({ title: "复核敏感个人信息", description: "需要进一步确认处理目的、必要性、告知同意和保护措施。", riskLevel: facts.sensitiveInformation === "unknown" ? "L2" : "L3" });
+  if ((Array.isArray(enterprise.sensitiveCategories) && enterprise.sensitiveCategories.length > 0) || facts.sensitiveInformation !== "no") {
+    const categories = Array.isArray(facts.sensitiveCategories) ? facts.sensitiveCategories.map(value => aiLabels[String(value)] || String(value)) : [];
+    findings.push({
+      title: "复核敏感个人信息",
+      description: categories.length
+        ? `已识别类别：${categories.join("、")}。需要进一步确认特定目的、充分必要性、告知同意和严格保护措施。`
+        : facts.minorsInvolved === "yes"
+          ? "涉及不满十四周岁未成年人个人信息，依法属于敏感个人信息，需要专项复核。"
+          : "法定类别尚未确认，需要先核对具体字段，再确认处理目的、必要性、告知同意和保护措施。",
+      riskLevel: facts.sensitiveInformation === "unknown" ? "L2" : "L3"
+    });
+  }
   if (enterprise.minorsPossible !== "no" || facts.minorsInvolved !== "no") findings.push({ title: "确认未成年人情况", description: "可能涉及不满十四周岁未成年人时，需要专项复核。", riskLevel: facts.minorsInvolved === "unknown" ? "L2" : "L3" });
   if (facts.automatedDecision === "yes") findings.push({ title: "复核自动化决策安排", description: "请确认自动化决策的用途、对个人的影响、告知方式和拒绝渠道，并判断是否需要专项评估。", riskLevel: "L3" });
   else if (facts.automatedDecision === "unknown") findings.push({ title: "确认是否使用自动化决策", description: "请确认系统是否会自动决定推荐、价格、资格或其他对个人有影响的结果。", riskLevel: "L2" });
@@ -204,7 +227,7 @@ export async function runDifyScenarioTriage(context: TriageContext): Promise<Tri
           workflow_code: "scenario_triage",
           enterprise_context: JSON.stringify(buildAiEnterpriseContext(context.enterprise)),
           scenario_context: JSON.stringify(context.scenario),
-          confirmed_facts: JSON.stringify(context.confirmedFacts || {})
+          confirmed_facts: JSON.stringify(buildAiConfirmedFacts(context.confirmedFacts || {}))
         },
         response_mode: "blocking",
         user: `enterprise-${String(context.enterprise.id || "mvp")}`

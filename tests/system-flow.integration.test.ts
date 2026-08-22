@@ -247,3 +247,11 @@ test("首次建档不会误触发已发布材料的复核，后续真实变更�
   assert.equal(afterChange.healthStatus, "needs_review", "建档完成后的真实变更应触发复核");
   assert.match(afterChange.reviewReason, /联系渠道/);
 });
+
+test("业务场景备注可以独立保存并同步更新待办名称", async () => {
+  const db = await import("../src/lib/db.ts");
+  const activity = db.createActivity({ scenarioCode: "SCN-CONSUMER-MEMBER", name: "消费者或会员", description: "会员服务" });
+  const updated = db.updateActivityFacts(activity.id, activity.facts, "小程序会员");
+  assert.equal(updated?.remark, "小程序会员");
+  assert.match(db.listTasks().find(item => item.code === `COMPLETE-${activity.id}`)?.title || "", /消费者或会员 · 小程序会员/);
+});

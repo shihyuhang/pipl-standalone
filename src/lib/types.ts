@@ -46,7 +46,7 @@ export interface QualificationResult {
 
 export interface DashboardData {
   enterprise: EnterpriseProfile;
-  counts: { activities: number; openTasks: number; documents: number; completedTasks: number; audits: number; signedAudits: number; impactAssessments: number };
+  counts: { activities: number; openTasks: number; documents: number; completedTasks: number; audits: number; signedAudits: number; impactAssessments: number; followUpRecords: number };
   tasks: TaskItem[];
   activities: ProcessingActivity[];
   documents: BusinessDocument[];
@@ -78,6 +78,7 @@ export interface ProcessingActivity {
   id: string;
   scenarioCode: string;
   name: string;
+  remark?: string;
   description: string;
   status: "draft" | "active" | "needs_review";
   completeness: number;
@@ -90,6 +91,7 @@ export type FactAnswer = "yes" | "no" | "unknown" | "";
 export interface ActivityFacts {
   dataSubjects: string[];
   informationTypes: string[];
+  informationDetails?: string;
   purposes: string[];
   collectionChannels: string[];
   systems: string[];
@@ -102,6 +104,7 @@ export interface ActivityFacts {
   rightsChannel: string;
   automatedDecision: FactAnswer;
   sensitiveInformation: FactAnswer;
+  sensitiveCategories?: string[];
   minorsInvolved: FactAnswer;
   crossBorderAccess: FactAnswer;
   notes: string;

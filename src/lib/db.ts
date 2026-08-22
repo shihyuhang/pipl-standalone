@@ -9,6 +9,8 @@ import { buildSystemTaskRules } from "./task-rules.ts";
 import { normalizeChinaLegalText, normalizeTriageFinding } from "./legal-language.ts";
 import { changedActivityFactFields, changedEnterpriseFields, describeActivityImpact, describeEnterpriseImpact } from "./document-impact.ts";
 import { inferMaterialAudienceGroup } from "./material-audience.ts";
+import { normalizeSensitiveCategoryCodes, sensitiveCategoryLabels } from "./sensitive-info.ts";
+import { activityDisplayName } from "./activity-label.ts";
 
 const databasePath = resolve(process.cwd(), process.env.PIPL_DATABASE_PATH || "./data/pipl-mvp.db");
 mkdirSync(dirname(databasePath), { recursive: true });
@@ -29,7 +31,7 @@ const schemaSql = `
     onboarding_completed INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS processing_activity (
-    id TEXT PRIMARY KEY, scenario_code TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+    id TEXT PRIMARY KEY, scenario_code TEXT NOT NULL, name TEXT NOT NULL, remark TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'draft', completeness REAL NOT NULL DEFAULT 0.15,
     facts_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
   );
@@ -124,6 +126,7 @@ function getDb(): DatabaseSync {
     instance.exec("ALTER TABLE processing_activity ADD COLUMN facts_json TEXT NOT NULL DEFAULT '{}'");
   }
   ensureColumn(instance, "task", "source_type", "TEXT");
+  ensureColumn(instance, "processing_activity", "remark", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(instance, "enterprise", "industry", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(instance, "task", "source_id", "TEXT");
   ensureColumn(instance, "task", "activity_id", "TEXT");
@@ -288,7 +291,7 @@ export function getEnterprise(): EnterpriseProfile {
     businessModel: String(row.business_model) as EnterpriseProfile["businessModel"], ownership: String(row.ownership),
     processingRole: String(row.processing_role), personCount: row.person_count === null ? null : Number(row.person_count),
     countVerified: Boolean(row.count_verified), subjectCategories: parseArray(row.subject_categories),
-    sensitiveCategories: parseArray(row.sensitive_categories), minorsPossible: String(row.minors_possible) as EnterpriseProfile["minorsPossible"],
+    sensitiveCategories: normalizeSensitiveCategoryCodes(parseArray(row.sensitive_categories)), minorsPossible: String(row.minors_possible) as EnterpriseProfile["minorsPossible"],
     crossBorder: String(row.cross_border) as EnterpriseProfile["crossBorder"], privacyContactName: String(row.privacy_contact_name),
     privacyContactRole: String(row.privacy_contact_role), privacyContactChannel: String(row.privacy_contact_channel),
     qualificationStatus: String(row.qualification_status) as EnterpriseProfile["qualificationStatus"],
@@ -339,7 +342,7 @@ function reconcileSystemTasks() {
   const enterprise = getEnterprise();
   const activities = (db.prepare("SELECT * FROM processing_activity").all() as Record<string, unknown>[]).map(row => {
     const activity = mapActivity(row);
-    return { id: activity.id, name: activity.name, completeness: activity.completeness };
+    return { id: activity.id, name: activity.name, remark: activity.remark, completeness: activity.completeness };
   });
   const externalNoticeCount = Number((db.prepare(`SELECT COUNT(*) AS value FROM business_document d
     JOIN document_version v ON v.id=d.current_version_id AND v.document_id=d.id AND v.status='effective'
@@ -422,14 +425,14 @@ export function updateTask(id: string, input: {
   return listTasks().find(item => item.id === id) || null;
 }
 
-export function createActivity(input: { scenarioCode: string; name: string; description?: string }): ProcessingActivity {
+export function createActivity(input: { scenarioCode: string; name: string; remark?: string; description?: string }): ProcessingActivity {
   const initialFacts = emptyActivityFacts();
   initialFacts.rightsChannel = getEnterprise().privacyContactChannel;
-  const item = { id: randomUUID(), scenarioCode: input.scenarioCode, name: input.name, description: input.description || "", status: "draft" as const, completeness: 0.15, facts: initialFacts, createdAt: now() };
-  getDb().prepare("INSERT INTO processing_activity (id, scenario_code, name, description, status, completeness, facts_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(item.id, item.scenarioCode, item.name, item.description, item.status, item.completeness, JSON.stringify(item.facts), item.createdAt);
-  upsertTask({ code: `COMPLETE-${item.id}`, title: `完善“${item.name}”业务情况`, description: "确认涉及人员、信息字段、访问岗位、删除方式和个人权利渠道。", category: "我的业务" });
-  addAuditEvent("activity.created", `新增业务场景：${item.name}`);
+  const item = { id: randomUUID(), scenarioCode: input.scenarioCode, name: input.name, remark: input.remark?.trim() || "", description: input.description || "", status: "draft" as const, completeness: 0.15, facts: initialFacts, createdAt: now() };
+  getDb().prepare("INSERT INTO processing_activity (id, scenario_code, name, remark, description, status, completeness, facts_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(item.id, item.scenarioCode, item.name, item.remark, item.description, item.status, item.completeness, JSON.stringify(item.facts), item.createdAt);
+  upsertTask({ code: `COMPLETE-${item.id}`, title: `完善“${activityDisplayName(item)}”业务情况`, description: "确认涉及人员、信息字段、访问岗位、删除方式和个人权利渠道。", category: "我的业务" });
+  addAuditEvent("activity.created", `新增业务场景：${activityDisplayName(item)}`);
   return item;
 }
 
@@ -442,7 +445,7 @@ function mapActivity(row: Record<string, unknown>): ProcessingActivity {
   try { rawFacts = JSON.parse(String(row.facts_json || "{}")); } catch { rawFacts = {}; }
   const facts = normalizeActivityFacts(rawFacts);
   return {
-    id: String(row.id), scenarioCode: String(row.scenario_code), name: String(row.name), description: String(row.description),
+    id: String(row.id), scenarioCode: String(row.scenario_code), name: String(row.name), remark: String(row.remark || ""), description: String(row.description),
     status: String(row.status) as ProcessingActivity["status"], completeness: activityFactsCompleteness(facts),
     facts, createdAt: String(row.created_at)
   };
@@ -480,34 +483,43 @@ export function deleteActivity(id: string): { deleted: boolean; message: string 
     getDb().prepare("DELETE FROM processing_activity WHERE id=?").run(id);
     getDb().exec("COMMIT");
   } catch (error) { getDb().exec("ROLLBACK"); throw error; }
-  addAuditEvent("activity.deleted", `删除未被引用的业务场景：${activity.name}`);
+  addAuditEvent("activity.deleted", `删除未被引用的业务场景：${activityDisplayName(activity)}`);
   return { deleted: true, message: "业务已删除。" };
 }
 
-export function updateActivityFacts(id: string, input: ActivityFacts): ProcessingActivity | null {
+export function updateActivityFacts(id: string, input: ActivityFacts, remark?: string): ProcessingActivity | null {
   const current = getActivity(id);
   if (!current) return null;
   const facts = normalizeActivityFacts(input);
   const completeness = activityFactsCompleteness(facts);
   const changedFields = changedActivityFactFields(current.facts, facts);
   const changed = changedFields.length > 0;
+  const nextRemark = remark === undefined ? String(current.remark || "") : remark.trim().slice(0, 200);
+  const remarkChanged = nextRemark !== String(current.remark || "");
   facts.confirmedAt = completeness === 1 ? (changed ? now() : current.facts.confirmedAt || now()) : null;
-  getDb().prepare("UPDATE processing_activity SET facts_json=?, completeness=? WHERE id=?")
-    .run(JSON.stringify(facts), completeness, id);
+  getDb().prepare("UPDATE processing_activity SET facts_json=?, completeness=?, remark=? WHERE id=?")
+    .run(JSON.stringify(facts), completeness, nextRemark, id);
+  const updatedActivity = { ...current, remark: nextRemark };
+  if (remarkChanged) {
+    const label = activityDisplayName(updatedActivity);
+    getDb().prepare("UPDATE task SET title=? WHERE code=? AND status!='completed'").run(`完善“${label}”业务情况`, `COMPLETE-${id}`);
+    markDocumentsForActivityChange(id, `“${activityDisplayName(current)}”的场景备注已更新为“${label}”，需要核对材料中的业务名称。`, ["场景备注"], ["相关业务说明"]);
+    addAuditEvent("activity.remark.updated", `更新业务场景备注：${label}`);
+  }
   if (changed) getDb().prepare("UPDATE assessment_run SET validity='outdated', invalidated_at=? WHERE activity_id=? AND validity='current'")
     .run(now(), id);
   if (completeness === 1) {
     const timestamp = now();
-    const completionBasis = `“${current.name}”的必要业务信息已经全部确认。`;
+    const completionBasis = `“${activityDisplayName(updatedActivity)}”的必要业务信息已经全部确认。`;
     getDb().prepare(`UPDATE task SET status='completed', completed_at=?, started_at=COALESCE(started_at, ?),
       handling_note=?, evidence_note='系统记录：业务场景事实档案', responsible_name='系统自动核验',
       completion_mode='automatic', completion_basis=? WHERE code=? AND status!='completed'`)
       .run(timestamp, timestamp, completionBasis, completionBasis, `COMPLETE-${id}`);
   }
   if (changed) {
-    const impact = describeActivityImpact(current.name, changedFields);
+    const impact = describeActivityImpact(activityDisplayName(updatedActivity), changedFields);
     markDocumentsForActivityChange(id, impact.reason, impact.changedFields, impact.affectedSections);
-    addAuditEvent("activity.facts.updated", completeness === 1 ? `完成业务场景事实确认：${current.name}` : `保存业务场景进度：${current.name}`);
+    addAuditEvent("activity.facts.updated", completeness === 1 ? `完成业务场景事实确认：${activityDisplayName(updatedActivity)}` : `保存业务场景进度：${activityDisplayName(updatedActivity)}`);
   }
   return getActivity(id);
 }
@@ -791,7 +803,7 @@ export function createAssessmentRun(activity: ProcessingActivity, enterpriseSnap
     for (const finding of normalizedFindings) statement.run(randomUUID(), id, finding.title, finding.description, finding.riskLevel, createdAt);
     db.exec("COMMIT");
   } catch (error) { db.exec("ROLLBACK"); throw error; }
-  addAuditEvent("assessment.created", `完成“${activity.name}”第 ${sequence} 次初步检查`);
+  addAuditEvent("assessment.created", `完成“${activityDisplayName(activity)}”第 ${sequence} 次初步检查`);
   return getAssessment(id)!;
 }
 
@@ -809,7 +821,7 @@ function mapAssessment(row: Record<string, unknown>): AssessmentRun {
   const parseList = (value: unknown) => { try { return JSON.parse(String(value || "[]")); } catch { return []; } };
   const findings = (getDb().prepare("SELECT * FROM assessment_finding WHERE assessment_id=? ORDER BY created_at, id").all(String(row.id)) as Record<string, unknown>[]).map(mapFinding);
   return {
-    id: String(row.id), activityId: String(row.activity_id), activityName: String(row.activity_name || "业务场景"), sequence: Number(row.sequence),
+    id: String(row.id), activityId: String(row.activity_id), activityName: row.activity_remark ? `${String(row.activity_name || "业务场景")} · ${String(row.activity_remark)}` : String(row.activity_name || "业务场景"), sequence: Number(row.sequence),
     source: String(row.source) as AssessmentRun["source"], status: String(row.status) as AssessmentRun["status"], summary: normalizeChinaLegalText(row.summary),
     reviewRequired: Boolean(row.review_required), warnings: parseList(row.warnings_json).map(normalizeChinaLegalText), factsSnapshot: normalizeActivityFacts(parseObject(row.facts_snapshot_json)),
     enterpriseSnapshot: parseObject(row.enterprise_snapshot_json), workflowCode: String(row.workflow_code), workflowVersion: String(row.workflow_version),
@@ -819,15 +831,15 @@ function mapAssessment(row: Record<string, unknown>): AssessmentRun {
 }
 
 export function getAssessment(id: string): AssessmentRun | null {
-  const row = getDb().prepare(`SELECT ar.*, pa.name AS activity_name FROM assessment_run ar
+  const row = getDb().prepare(`SELECT ar.*, pa.name AS activity_name, pa.remark AS activity_remark FROM assessment_run ar
     JOIN processing_activity pa ON pa.id=ar.activity_id WHERE ar.id=?`).get(id) as Record<string, unknown> | undefined;
   return row ? mapAssessment(row) : null;
 }
 
 export function listAssessments(activityId?: string): AssessmentRun[] {
   const rows = (activityId
-    ? getDb().prepare(`SELECT ar.*, pa.name AS activity_name FROM assessment_run ar JOIN processing_activity pa ON pa.id=ar.activity_id WHERE ar.activity_id=? ORDER BY ar.created_at DESC`).all(activityId)
-    : getDb().prepare(`SELECT ar.*, pa.name AS activity_name FROM assessment_run ar JOIN processing_activity pa ON pa.id=ar.activity_id ORDER BY ar.created_at DESC`).all()) as Record<string, unknown>[];
+    ? getDb().prepare(`SELECT ar.*, pa.name AS activity_name, pa.remark AS activity_remark FROM assessment_run ar JOIN processing_activity pa ON pa.id=ar.activity_id WHERE ar.activity_id=? ORDER BY ar.created_at DESC`).all(activityId)
+    : getDb().prepare(`SELECT ar.*, pa.name AS activity_name, pa.remark AS activity_remark FROM assessment_run ar JOIN processing_activity pa ON pa.id=ar.activity_id ORDER BY ar.created_at DESC`).all()) as Record<string, unknown>[];
   return rows.map(mapAssessment);
 }
 
@@ -984,7 +996,15 @@ const pipiaCategories: Record<PipiaCategoryCode, string> = {
 export function listPipiaRecommendations() {
   return listActivities().map(activity => {
     const recommendedCodes: PipiaCategoryCode[] = []; const reasons: string[] = [];
-    if (activity.facts.sensitiveInformation === "yes") { recommendedCodes.push("P01"); reasons.push("业务填写为涉及敏感个人信息"); }
+    if (activity.facts.sensitiveInformation === "yes") {
+      recommendedCodes.push("P01");
+      const labels = sensitiveCategoryLabels(activity.facts.sensitiveCategories);
+      reasons.push(labels.length
+        ? `已按法定类别识别为：${labels.join("、")}`
+        : activity.facts.minorsInvolved === "yes"
+          ? "涉及不满十四周岁未成年人的个人信息，依法属于敏感个人信息"
+          : "敏感个人信息类别尚待负责人确认");
+    }
     if (activity.facts.purposes.includes("营销活动")) { recommendedCodes.push("P02"); reasons.push("存在营销用途，需确认是否采用自动化决策"); }
     if (activity.facts.recipients.some(item => item !== "不向外部提供")) { recommendedCodes.push("P03"); reasons.push("记录了服务商或其他外部接收方"); }
     if (activity.facts.crossBorderAccess === "yes") { recommendedCodes.push("P04"); reasons.push("业务填写为存在境外存储或访问"); }
@@ -1018,7 +1038,7 @@ function mapPipiaInstance(row: Record<string, unknown>, includeResponses = false
     : null;
   const complete = responses.filter(item => ![item.legality, item.impact, item.measureAdequacy].includes("unanswered")).length;
   return {
-    id: String(row.id), activityId: String(row.activity_id), activityName: activity?.name || "已删除业务", status: String(row.status) as FormStatus,
+    id: String(row.id), activityId: String(row.activity_id), activityName: activity ? activityDisplayName(activity) : "已删除业务", status: String(row.status) as FormStatus,
     categoryCodes, progress: responses.length ? complete / responses.length : 0, responsibleName: String(row.responsible_name),
     responsibleRole: String(row.responsible_role), createdAt: String(row.created_at), updatedAt: String(row.updated_at),
     signedAt: row.signed_at ? String(row.signed_at) : null, signedContentHash: row.signed_content_hash ? String(row.signed_content_hash) : null,
@@ -1057,7 +1077,7 @@ export function createPipiaInstance(activityId: string, categoryCodes: PipiaCate
     for (const code of uniqueCodes) statement.run(randomUUID(), id, code, timestamp);
     getDb().exec("COMMIT");
   } catch (error) { getDb().exec("ROLLBACK"); throw error; }
-  addAuditEvent("pipia.created", `开始“${activity.name}”个人信息保护影响评估`);
+  addAuditEvent("pipia.created", `开始“${activityDisplayName(activity)}”个人信息保护影响评估`);
   return getPipiaInstance(id);
 }
 
@@ -1122,6 +1142,12 @@ export function listAuditEvents(): AuditEvent[] {
 
 export function getDashboard(): DashboardData {
   const tasks = listTasks(); const activities = listActivities(); const documents = listDocuments();
-  const audits = listAuditInstances(); const pipias = listPipiaInstances();
-  return { enterprise: getEnterprise(), counts: { activities: activities.length, openTasks: tasks.filter(t => t.status !== "completed").length, completedTasks: tasks.filter(t => t.status === "completed").length, documents: documents.length, audits: audits.length, signedAudits: audits.filter(item => item.status === "signed").length, impactAssessments: pipias.length }, tasks, activities, documents, recentEvents: listAuditEvents() };
+  const audits = listAuditInstances(); const pipias = listPipiaInstances(); const recentEvents = listAuditEvents();
+  const signedAudits = audits.filter(item => item.status === "signed" && item.signedAt);
+  const firstSignedAuditAt = signedAudits.map(item => item.signedAt!).sort()[0];
+  const followUpActions = new Set(["document.published", "document.impact.resolved", "assessment.created", "audit.signed", "pipia.signed"]);
+  const followUpRecords = firstSignedAuditAt
+    ? recentEvents.filter(event => event.createdAt > firstSignedAuditAt && followUpActions.has(event.action)).length
+    : 0;
+  return { enterprise: getEnterprise(), counts: { activities: activities.length, openTasks: tasks.filter(t => t.status !== "completed").length, completedTasks: tasks.filter(t => t.status === "completed").length, documents: documents.length, audits: audits.length, signedAudits: signedAudits.length, impactAssessments: pipias.length, followUpRecords }, tasks, activities, documents, recentEvents };
 }

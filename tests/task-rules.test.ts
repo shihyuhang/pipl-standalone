@@ -34,3 +34,10 @@ test("任务完成依据不展示内部处理角色枚举", () => {
   assert.match(roleRule.completionBasis, /主要由本单位自行决定/);
   assert.doesNotMatch(roleRule.completionBasis, /independent_processor|processingRole/);
 });
+
+test("同类业务的场景备注进入任务名称以便区分", () => {
+  const rules = buildSystemTaskRules({ ...base, activities: [{ id: "activity-1", name: "消费者或会员", remark: "小程序会员", completeness: 0.4 }] });
+  const activityRule = rules.find(item => item.code === "COMPLETE-activity-1")!;
+  assert.match(activityRule.title, /消费者或会员 · 小程序会员/);
+  assert.match(activityRule.evidenceNote, /小程序会员/);
+});

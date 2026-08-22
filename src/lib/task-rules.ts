@@ -1,4 +1,5 @@
 import { normalizeChinaLegalText } from "./legal-language.ts";
+import { activityDisplayName } from "./activity-label.ts";
 
 export interface SystemTaskSnapshot {
   onboardingCompleted: boolean;
@@ -10,7 +11,7 @@ export interface SystemTaskSnapshot {
   crossBorder: string;
   activityCount: number;
   externalNoticeCount: number;
-  activities: Array<{ id: string; name: string; completeness: number }>;
+  activities: Array<{ id: string; name: string; remark?: string; completeness: number }>;
 }
 
 export interface SystemTaskRule {
@@ -63,9 +64,9 @@ export function buildSystemTaskRules(snapshot: SystemTaskSnapshot): SystemTaskRu
     }
   ];
   for (const activity of snapshot.activities) rules.push({
-    code: `COMPLETE-${activity.id}`, title: `完善“${activity.name}”业务情况`, description: "确认涉及人员、信息字段、访问岗位、删除方式和个人权利渠道。",
+    code: `COMPLETE-${activity.id}`, title: `完善“${activityDisplayName(activity)}”业务情况`, description: "确认涉及人员、信息字段、访问岗位、删除方式和个人权利渠道。",
     category: "我的业务", priority: "normal", satisfied: activity.completeness >= 1,
-    completionBasis: `“${activity.name}”的必要业务信息已全部确认。`, evidenceNote: `系统记录：我的业务 / ${activity.name}`,
+    completionBasis: `“${activityDisplayName(activity)}”的必要业务信息已全部确认。`, evidenceNote: `系统记录：我的业务 / ${activityDisplayName(activity)}`,
     createWhenUnsatisfied: true, activityId: activity.id
   });
   return rules;

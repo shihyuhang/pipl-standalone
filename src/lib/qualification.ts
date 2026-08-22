@@ -29,7 +29,7 @@ export function assessQualification(input: QualificationInput): QualificationRes
   }
 
   const highRisk = input.sensitiveCategories.length > 0 || input.minorsPossible !== "no" || input.crossBorder !== "no";
-  if (input.sensitiveCategories.length > 0) reasons.push("涉及较敏感的信息，需要进一步确认必要性和保护措施。");
+  if (input.sensitiveCategories.length > 0) reasons.push("已按法定类别记录敏感个人信息，需要进一步确认特定目的、充分必要性和严格保护措施。");
   if (input.minorsPossible !== "no") reasons.push("未成年人情况仍需确认或专项复核。");
   if (input.crossBorder !== "no") reasons.push("境外存储、传输或远程访问情况仍需确认或专项复核。");
   if (input.processingRole === "unknown" || !input.processingRole) {
@@ -46,7 +46,7 @@ export function assessQualification(input: QualificationInput): QualificationRes
     tasks.push({
       code: "HIGH-RISK-REVIEW",
       title: "完成高风险事项复核",
-      description: "系统只提供辅助判断，敏感信息、未成年人或境外访问事项需人工确认。",
+      description: "系统按《个人信息保护法》口径提供辅助识别；敏感个人信息、不满十四周岁未成年人或境外访问事项仍需负责人复核。",
       priority: "high"
     });
     return {

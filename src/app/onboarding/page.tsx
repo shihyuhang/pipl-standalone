@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { sensitiveCategoryDefinitions } from "@/lib/sensitive-info";
 import { ArrowLeft, ArrowRight, Building2, Check, ShieldCheck, Users } from "lucide-react";
 
 type Form = {
@@ -12,7 +13,6 @@ type Form = {
 const initial: Form = { legalName: "", orgType: "company", industry: "", businessModel: "B2B", ownership: "domestic", processingRole: "independent_processor", personCount: "", countVerified: false, subjectCategories: [], sensitiveCategories: [], minorsPossible: "no", crossBorder: "no", privacyContactName: "", privacyContactRole: "", privacyContactChannel: "" };
 const industrySuggestions = ["软件和信息技术服务", "专业服务", "制造业", "批发和零售", "住宿和餐饮", "租赁和商务服务", "房地产和物业管理", "交通运输和物流", "教育培训", "医疗健康", "文化、体育和娱乐"];
 const subjectOptions = [["employee", "在职员工"], ["candidate", "招聘候选人"], ["customer_contact", "客户企业联系人"], ["supplier_contact", "供应商联系人"], ["consumer", "消费者或会员"], ["visitor", "访客"]];
-const sensitiveOptions = [["identity_document", "身份证件"], ["financial_account", "金融账户"], ["health", "健康信息"], ["biometric", "人脸或指纹"], ["precise_location", "精确位置"]];
 
 export default function OnboardingPage() {
   const [step, setStep] = useState(1); const [form, setForm] = useState<Form>(initial); const [saving, setSaving] = useState(false); const [error, setError] = useState(""); const router = useRouter();
@@ -37,7 +37,7 @@ export default function OnboardingPage() {
         <div className="field"><span>贵单位通常由谁决定为什么收集和怎样使用这些信息？</span><div className="choice-grid">{[["independent_processor","主要由我们自己决定"],["entrusted_processor","主要按照客户或其他公司的指示处理"],["mixed","两种情况都有"],["unknown","不清楚"]].map(([v,l]) => <button className={form.processingRole === v ? "choice selected" : "choice"} key={v} onClick={() => set("processingRole", v)}>{form.processingRole === v && <Check size={16} />}{l}</button>)}</div></div>
         <div className="field"><span>目前保存哪些人的信息？</span><div className="tag-choices">{subjectOptions.map(([v,l]) => <button className={form.subjectCategories.includes(v) ? "selected" : ""} key={v} onClick={() => toggle("subjectCategories", v)}>{form.subjectCategories.includes(v) && <Check size={14} />}{l}</button>)}</div></div></>}
       {step === 3 && <><div className="step-icon"><ShieldCheck /></div><p className="eyebrow">识别需要关注的情况</p><h1>再确认几个关键问题</h1><p className="form-lead">这些情况不会自动得出“不合规”结论，只会决定是否需要更多问题或专业复核。</p>
-        <div className="field"><span>是否处理以下较敏感的信息？</span><div className="tag-choices">{sensitiveOptions.map(([v,l]) => <button className={form.sensitiveCategories.includes(v) ? "selected" : ""} key={v} onClick={() => toggle("sensitiveCategories", v)}>{form.sensitiveCategories.includes(v) && <Check size={14} />}{l}</button>)}</div><small className="field-help">都不涉及时不用选择。</small></div>
+        <div className="field"><span>根据法定口径，是否处理以下敏感个人信息？</span><div className="sensitive-category-grid">{sensitiveCategoryDefinitions.map(item => <button type="button" className={form.sensitiveCategories.includes(item.code) ? "selected" : ""} key={item.code} onClick={() => toggle("sensitiveCategories", item.code)}><span>{form.sensitiveCategories.includes(item.code) && <Check size={14} />}<strong>{item.label}</strong></span><small>{item.examples}</small><em>{item.boundary}</em></button>)}</div><small className="field-help">依据《个人信息保护法》第二十八条识别，GB/T 45574—2025 第4章及附录A用于细化类别和边界；不满十四周岁未成年人的全部个人信息在下方单独确认，并始终按敏感个人信息处理。</small></div>
         <div className="two-column-fields"><div className="field"><span>可能包括不满十四周岁的未成年人吗？</span><div className="segmented">{[["no","没有"],["yes","有"],["unknown","不清楚"]].map(([v,l]) => <button className={form.minorsPossible === v ? "selected" : ""} key={v} onClick={() => set("minorsPossible", v)}>{l}</button>)}</div></div><div className="field"><span>会存到境外或被境外人员远程查看吗？</span><div className="segmented">{[["no","不会"],["yes","会"],["unknown","不清楚"]].map(([v,l]) => <button className={form.crossBorder === v ? "selected" : ""} key={v} onClick={() => set("crossBorder", v)}>{l}</button>)}</div></div></div>
         <div className="contact-box"><strong>谁负责确认和后续办理？</strong><div className="three-inputs"><label><span>姓名</span><input value={form.privacyContactName} onChange={e => set("privacyContactName", e.target.value)} placeholder="负责人姓名" /></label><label><span>岗位</span><input value={form.privacyContactRole} onChange={e => set("privacyContactRole", e.target.value)} placeholder="例如行政经理" /></label><label><span>联系渠道</span><input value={form.privacyContactChannel} onChange={e => set("privacyContactChannel", e.target.value)} placeholder="工作邮箱或电话" /></label></div></div></>}
       {error && <div className="alert danger">{error}</div>}

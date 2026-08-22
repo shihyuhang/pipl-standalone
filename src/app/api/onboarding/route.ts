@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { addAuditEvent, updateEnterprise, upsertTask } from "@/lib/db";
 import { assessQualification } from "@/lib/qualification";
+import { sensitiveCategoryCodes } from "@/lib/sensitive-info";
 
 export const runtime = "nodejs";
 
@@ -9,7 +10,7 @@ const schema = z.object({
   legalName: z.string().min(2).max(200), orgType: z.string().min(1), industry: z.string().trim().min(2).max(100),
   businessModel: z.enum(["B2B", "B2C", "both", "internal_only"]), ownership: z.string().min(1),
   processingRole: z.string().min(1), personCount: z.number().int().nonnegative().nullable(), countVerified: z.boolean(),
-  subjectCategories: z.array(z.string()), sensitiveCategories: z.array(z.string()),
+  subjectCategories: z.array(z.string()), sensitiveCategories: z.array(z.enum(sensitiveCategoryCodes)),
   minorsPossible: z.enum(["yes", "no", "unknown"]), crossBorder: z.enum(["yes", "no", "unknown"]),
   privacyContactName: z.string().min(1), privacyContactRole: z.string().min(1), privacyContactChannel: z.string().min(1)
 });

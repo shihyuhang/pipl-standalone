@@ -69,7 +69,7 @@ export default function DocumentsPage() {
   const [aiPreview, setAiPreview] = useState<MaterialAiPreview | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [activityIds, setActivityIds] = useState<string[]>([]);
-  const [editor, setEditor] = useState<{ mode: "view" | "new" | "edit"; versionId?: string } | null>(null);
+  const [editor, setEditor] = useState<{ mode: "view" | "new" | "edit"; versionId?: string; justCreated?: boolean } | null>(null);
   const [content, setContent] = useState("");
   const [summary, setSummary] = useState("");
   const [createdBy, setCreatedBy] = useState("");
@@ -145,7 +145,17 @@ export default function DocumentsPage() {
     setBusy(true); setError("");
     const response = await fetch("/api/documents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, scope, type, audienceGroup, audience, description, activityIds, generationMode, excludedAiFields: aiPreview?.excludedFields || [], aiPreviewConfirmed }) });
     const payload = await response.json();
-    if (response.ok) { await load(payload.id); setAiPreview(null); setCreating(false); setTab("versions"); }
+    if (response.ok) {
+      const created = payload as BusinessDocument;
+      const draft = created.versions?.find(version => version.status === "draft") || created.versions?.[0];
+      setDocuments(current => [created, ...current.filter(document => document.id !== created.id)]);
+      setSelected(created); setAiPreview(null); setCreating(false); setTab("versions");
+      if (draft) {
+        setContent(draft.content); setSummary(draft.changeSummary); setCreatedBy(draft.createdBy || "");
+        setEditor({ mode: "edit", versionId: draft.id, justCreated: true });
+      }
+      void load(created.id);
+    }
     else setError(payload.message || "生成材料失败，请稍后重试。");
     setBusy(false);
   };
@@ -176,13 +186,17 @@ export default function DocumentsPage() {
     setCreatedBy(version?.createdBy || ""); setError(""); setEditor({ mode: version?.status === "draft" ? "edit" : "new", versionId: version?.status === "draft" ? version.id : undefined });
   };
 
-  const saveRevision = async () => {
+  const saveRevision = async (nextAction: "close" | "publish" = "close") => {
     if (!selected || !editor) return;
     setBusy(true); setError("");
     const url = editor.mode === "edit" ? `/api/documents/${selected.id}/versions/${editor.versionId}` : `/api/documents/${selected.id}/versions`;
     const response = await fetch(url, { method: editor.mode === "edit" ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content, changeSummary: summary, createdBy }) });
     const payload = await response.json();
-    if (response.ok) { await load(selected.id); setEditor(null); setTab("versions"); }
+    if (response.ok) {
+      const savedVersion = payload as DocumentVersion;
+      await load(selected.id); setEditor(null); setTab("versions");
+      if (nextAction === "publish") openPublish(savedVersion);
+    }
     else setError(payload.message || "无法保存草稿。");
     setBusy(false);
   };
@@ -288,7 +302,17 @@ export default function DocumentsPage() {
 
     {aiPreview && <div className="modal-backdrop ai-preview-backdrop" onClick={() => !busy && setAiPreview(null)}><section className="modal ai-preview-modal" onClick={event => event.stopPropagation()}><div className="modal-header"><div><p className="eyebrow">AI提交前确认</p><h2>本次将发送以下脱敏内容</h2><p>取消不必要字段后再确认。页面展示的内容与服务端实际提交内容一致。</p></div><button className="icon-button" aria-label="关闭" disabled={busy} onClick={() => setAiPreview(null)}>×</button></div><div className="ai-redaction-summary"><LockKeyhole /><div><strong>已自动脱敏 {aiPreview.redactionCount} 项</strong><p>{aiPreview.redactionLabels.join("、") || "本次未识别到需要替换的直接标识信息"}</p><span>{aiPreview.restorationNotice}</span></div></div><div className="ai-preview-layout"><section className="ai-field-control"><div className="ai-preview-section-title"><strong>选择发送字段</strong><span>核心材料要求、业务名称、涉及人员、信息种类和处理目的始终保留。</span></div>{(["企业信息", "业务信息"] as const).map(group => <div className="ai-field-group" key={group}><h3>{group}</h3>{aiPreview.fields.filter(field => field.group === group).map(field => <label key={field.code}><input type="checkbox" checked={field.included} disabled={previewBusy || busy} onChange={() => void togglePreviewField(field.code, field.included)} /><span><strong>{field.label}</strong><small>{field.description}</small></span></label>)}</div>)}</section><section className="ai-payload-preview"><div className="ai-preview-section-title"><strong>实际发送内容</strong><span>真实单位名称、联系人、联系方式，以及识别出的姓名、邮箱、手机、固定电话和身份证件号码均已替换为占位符。</span></div><pre>{JSON.stringify(aiPreview.payload, null, 2)}</pre></section></div>{previewBusy && <div className="ai-preview-refresh"><RefreshCw className="spin" /> 正在按新的字段范围刷新预览…</div>}{error && <div className="alert danger">{error}</div>}<div className="modal-actions ai-preview-actions"><button className="button secondary" disabled={busy} onClick={() => setAiPreview(null)}>返回修改</button><button className="button primary" disabled={busy || previewBusy} onClick={() => void create(true)}>{busy ? <RefreshCw className="spin" size={16} /> : <Sparkles size={16} />} {busy ? "AI正在起草…" : "确认并发送给AI"}</button></div></section></div>}
 
-    {editor && selected && <div className="modal-backdrop document-modal-backdrop" onClick={() => setEditor(null)}><section className={`modal editor-modal ${editor.mode === "view" ? "reader-modal" : ""}`} onClick={event => event.stopPropagation()}><div className="modal-header"><div><p className="eyebrow">{editor.mode === "view" ? "版本内容（只读）" : editor.mode === "edit" ? "编辑现有草稿" : "准备新版本"}</p><h2>{selected.name}</h2></div><button className="icon-button" aria-label="关闭" onClick={() => setEditor(null)}>×</button></div>{editor.mode === "view" ? <div className="document-reader-wrap"><article className="document-reader"><pre>{content}</pre></article></div> : <div className="document-editor-body"><div className="two-column-fields"><label className="field"><span>修改说明</span><input value={summary} onChange={event => setSummary(event.target.value)} /></label><label className="field"><span>创建或经办人</span><input value={createdBy} onChange={event => setCreatedBy(event.target.value)} placeholder="例如：张三" /></label></div><label className="field"><span>完整内容</span><textarea className="document-editor" value={content} onChange={event => setContent(event.target.value)} /></label>{error && <div className="alert danger">{error}</div>}</div>}<div className="modal-actions"><button className="button secondary" onClick={() => setEditor(null)}>关闭</button>{editor.mode !== "view" && <button className="button primary" disabled={busy || summary.length < 2 || content.length < 20} onClick={saveRevision}><FileClock size={16} /> 保存草稿</button>}</div></section></div>}
+    {editor && selected && <div className="modal-backdrop document-modal-backdrop" onClick={() => setEditor(null)}>
+      <section className={`modal editor-modal ${editor.mode === "view" ? "reader-modal" : ""}`} onClick={event => event.stopPropagation()}>
+        <div className="modal-header"><div><p className="eyebrow">{editor.justCreated ? "材料已生成 · 请核对草稿" : editor.mode === "view" ? "版本内容（只读）" : editor.mode === "edit" ? "编辑现有草稿" : "准备新版本"}</p><h2>{selected.name}</h2></div><button className="icon-button" aria-label="关闭" onClick={() => setEditor(null)}>×</button></div>
+        {editor.mode === "view" ? <div className="document-reader-wrap"><article className="document-reader"><pre>{content}</pre></article></div> : <div className="document-editor-body">
+          <div className="two-column-fields"><label className="field"><span>修改说明</span><input value={summary} onChange={event => setSummary(event.target.value)} /></label><label className="field"><span>创建或经办人</span><input value={createdBy} onChange={event => setCreatedBy(event.target.value)} placeholder="例如：张三" /></label></div>
+          <label className="field document-editor-field"><span>完整内容</span><textarea className="document-editor" value={content} onChange={event => setContent(event.target.value)} /></label>
+          {editor.justCreated && <div className="alert success">已为您打开刚刚生成的草稿。核对并按需修改后，可保存草稿或直接进入负责人发布确认。</div>}{error && <div className="alert danger">{error}</div>}
+        </div>}
+        <div className="modal-actions"><button className="button secondary" onClick={() => setEditor(null)}>关闭</button>{editor.mode !== "view" && <><button className="button secondary" disabled={busy || summary.length < 2 || content.length < 20} onClick={() => void saveRevision("close")}><FileClock size={16} /> 保存草稿</button><button className="button primary" disabled={busy || summary.length < 2 || content.length < 20} onClick={() => void saveRevision("publish")}><UploadCloud size={16} /> 保存并发布</button></>}</div>
+      </section>
+    </div>}
 
     {workflow && <div className="modal-backdrop" onClick={() => setWorkflow(null)}><section className="modal workflow-modal" onClick={event => event.stopPropagation()}><div className="modal-header"><div><p className="eyebrow">{workflow.version.versionNumber}</p><h2>确认并发布</h2></div><button className="icon-button" onClick={() => setWorkflow(null)}>×</button></div><div className="alert warning">发布后该版本正文将锁定。如需修改，应创建新版本。{selected?.type === "privacy_notice" || selected?.type === "b2b_contact_notice" || selected?.type === "employee_notice" || selected?.type === "candidate_notice" || selected?.type === "visitor_notice" ? " 请确认材料名称已修改为正式对外名称（如\u201C隐私政策\u201D），而非内部代号。" : ""}</div><label className="field"><span>发布人或负责人</span><input value={actor} onChange={event => setActor(event.target.value)} placeholder="例如：负责人姓名" /></label><label className="field"><span>发布渠道</span><input value={channel} onChange={event => setChannel(event.target.value)} placeholder="例如：公司官网、App、员工系统或合同附件" /></label><label className="field"><span>发布证据或地址（选填）</span><textarea value={evidence} onChange={event => setEvidence(event.target.value)} placeholder="例如：页面地址、文件编号或截图存放位置" /></label>{error && <div className="alert danger">{error}</div>}<div className="modal-actions"><button className="button secondary" onClick={() => setWorkflow(null)}>取消</button><button className="button primary" disabled={busy || !actor || !channel} onClick={runWorkflow}><UploadCloud size={16} /> 确认发布</button></div></section></div>}
 

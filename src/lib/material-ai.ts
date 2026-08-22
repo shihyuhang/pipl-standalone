@@ -3,6 +3,8 @@ import { resolveMaterialAiRuntimeConfiguration } from "./ai-settings.ts";
 import type { EnterpriseProfile, MaterialAiRuntimeConfiguration, ProcessingActivity } from "./types.ts";
 import type { MaterialDefinition } from "./materials.ts";
 import { normalizeChinaLegalText } from "./legal-language.ts";
+import { sensitiveCategoryLabels } from "./sensitive-info.ts";
+import { activityDisplayName } from "./activity-label.ts";
 
 const promptVersion = "material-complete-draft-v2-preview-redaction";
 
@@ -62,6 +64,7 @@ const fieldDefinitions: Array<Omit<MaterialAiFieldOption, "included">> = [
   { code: "enterprise.minorsPossible", group: "企业信息", label: "企业层面未成年人情况", description: "企业档案中的总体判断。" },
   { code: "enterprise.crossBorder", group: "企业信息", label: "企业层面境外情况", description: "企业档案中的总体判断。" },
   { code: "activity.description", group: "业务信息", label: "业务补充描述", description: "业务名称之外的场景说明。" },
+  { code: "activity.informationDetails", group: "业务信息", label: "具体字段或资料名称", description: "可能包含敏感描述或误填的个人信息值，默认不发送。" },
   { code: "activity.collectionChannels", group: "业务信息", label: "收集渠道", description: "信息从何处取得。" },
   { code: "activity.systems", group: "业务信息", label: "使用系统", description: "信息保存或使用的系统。" },
   { code: "activity.recipients", group: "业务信息", label: "外部接收方", description: "服务商或其他接收方。" },
@@ -73,6 +76,7 @@ const fieldDefinitions: Array<Omit<MaterialAiFieldOption, "included">> = [
   { code: "activity.rightsChannel", group: "业务信息", label: "个人权利渠道", description: "相关个人提出请求的渠道。" },
   { code: "activity.automatedDecision", group: "业务信息", label: "自动化决策情况", description: "该业务是否涉及自动化决策。" },
   { code: "activity.sensitiveInformation", group: "业务信息", label: "敏感个人信息情况", description: "该业务是否涉及敏感个人信息。" },
+  { code: "activity.sensitiveCategories", group: "业务信息", label: "敏感个人信息法定类别", description: "依据《个人信息保护法》第二十八条识别，并参照 GB/T 45574—2025 细化的类别。" },
   { code: "activity.minorsInvolved", group: "业务信息", label: "未成年人情况", description: "该业务是否涉及不满十四周岁未成年人。" },
   { code: "activity.crossBorderAccess", group: "业务信息", label: "境外存储或访问", description: "该业务是否存在境外存储或访问。" },
   { code: "activity.notes", group: "业务信息", label: "自由填写的补充说明", description: "可能包含不必要的具体信息，默认不发送。" },
@@ -81,7 +85,7 @@ const fieldDefinitions: Array<Omit<MaterialAiFieldOption, "included">> = [
 
 const alwaysExcluded = new Set([
   "enterprise.orgType", "enterprise.businessModel", "enterprise.ownership", "enterprise.personCount",
-  "enterprise.subjectCategories", "enterprise.sensitiveCategories", "activity.description",
+  "enterprise.subjectCategories", "enterprise.sensitiveCategories", "activity.description", "activity.informationDetails",
   "activity.approximatePersonCount", "activity.notes", "activity.confirmedAt"
 ]);
 
@@ -121,6 +125,7 @@ function include(excluded: Set<string>, code: string, key: string, value: unknow
 function filteredBaselineDraft(baseline: string, excluded: Set<string>): string {
   const linePatterns: Record<string, RegExp> = {
     "activity.collectionChannels": /^- 信息来源：.*\r?\n?/gm,
+    "activity.informationDetails": /^- 具体字段或资料名称：.*\r?\n?/gm,
     "activity.systems": /^- 保存或使用位置：.*\r?\n?/gm,
     "activity.recipients": /^- 外部接收方：.*\r?\n?/gm,
     "activity.approximatePersonCount": /^- 场景涉及人数：.*\r?\n?/gm,
@@ -131,6 +136,7 @@ function filteredBaselineDraft(baseline: string, excluded: Set<string>): string 
     "activity.rightsChannel": /^- 个人权利渠道：.*\r?\n?/gm,
     "activity.automatedDecision": /^- 自动化决策：.*\r?\n?/gm,
     "activity.sensitiveInformation": /^- 敏感个人信息：.*\r?\n?/gm,
+    "activity.sensitiveCategories": /^- 敏感个人信息类别：.*\r?\n?/gm,
     "activity.minorsInvolved": /^- 不满十四周岁未成年人：.*\r?\n?/gm,
     "activity.crossBorderAccess": /^- 境外存储或访问：.*\r?\n?/gm
   };
@@ -155,18 +161,19 @@ function rawContext(input: MaterialAiDraftInput, excluded: Set<string>): Record<
     enterprise.人数口径已确认 = input.enterprise.countVerified;
   }
   include(excluded, "enterprise.subjectCategories", "整体人员类别", input.enterprise.subjectCategories, enterprise);
-  include(excluded, "enterprise.sensitiveCategories", "整体敏感信息类别", input.enterprise.sensitiveCategories, enterprise);
+  include(excluded, "enterprise.sensitiveCategories", "整体敏感信息法定类别", sensitiveCategoryLabels(input.enterprise.sensitiveCategories), enterprise);
   include(excluded, "enterprise.minorsPossible", "企业层面是否可能涉及未成年人", input.enterprise.minorsPossible, enterprise);
   include(excluded, "enterprise.crossBorder", "企业层面是否涉及境外", input.enterprise.crossBorder, enterprise);
 
   const confirmedActivities = input.activities.map(activity => {
     const result: Record<string, unknown> = {
-      业务名称: activity.name,
+      业务名称: activityDisplayName(activity),
       涉及人员: activity.facts.dataSubjects,
       个人信息种类: activity.facts.informationTypes,
       处理目的: activity.facts.purposes
     };
     include(excluded, "activity.description", "业务说明", activity.description, result);
+    include(excluded, "activity.informationDetails", "具体字段或资料名称", activity.facts.informationDetails, result);
     include(excluded, "activity.collectionChannels", "收集渠道", activity.facts.collectionChannels, result);
     include(excluded, "activity.systems", "使用系统", activity.facts.systems, result);
     include(excluded, "activity.recipients", "外部接收方", activity.facts.recipients, result);
@@ -178,6 +185,7 @@ function rawContext(input: MaterialAiDraftInput, excluded: Set<string>): Record<
     include(excluded, "activity.rightsChannel", "权利请求渠道", activity.facts.rightsChannel, result);
     include(excluded, "activity.automatedDecision", "自动化决策", activity.facts.automatedDecision, result);
     include(excluded, "activity.sensitiveInformation", "敏感个人信息", activity.facts.sensitiveInformation, result);
+    include(excluded, "activity.sensitiveCategories", "敏感个人信息法定类别", sensitiveCategoryLabels(activity.facts.sensitiveCategories), result);
     include(excluded, "activity.minorsInvolved", "不满十四周岁未成年人", activity.facts.minorsInvolved, result);
     include(excluded, "activity.crossBorderAccess", "境外存储或访问", activity.facts.crossBorderAccess, result);
     include(excluded, "activity.notes", "补充说明", activity.facts.notes, result);

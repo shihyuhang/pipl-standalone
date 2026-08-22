@@ -1,8 +1,10 @@
 import type { ActivityFacts } from "./types";
+import { normalizeSensitiveCategoryCodes } from "./sensitive-info.ts";
 
 export const emptyActivityFacts = (): ActivityFacts => ({
   dataSubjects: [],
   informationTypes: [],
+  informationDetails: "",
   purposes: [],
   collectionChannels: [],
   systems: [],
@@ -15,6 +17,7 @@ export const emptyActivityFacts = (): ActivityFacts => ({
   rightsChannel: "",
   automatedDecision: "",
   sensitiveInformation: "",
+  sensitiveCategories: [],
   minorsInvolved: "",
   crossBorderAccess: "",
   notes: "",
@@ -28,9 +31,13 @@ export function normalizeActivityFacts(value: unknown): ActivityFacts {
   const array = (item: unknown) => Array.isArray(item) ? item.map(String).filter(Boolean).slice(0, 30) : [];
   const answer = (item: unknown): ActivityFacts["sensitiveInformation"] =>
     ["yes", "no", "unknown"].includes(String(item)) ? String(item) as "yes" | "no" | "unknown" : "";
+  const sensitiveCategories = normalizeSensitiveCategoryCodes(source.sensitiveCategories);
+  const minorsInvolved = answer(source.minorsInvolved);
+  const sensitiveInformation = sensitiveCategories.length > 0 || minorsInvolved === "yes" ? "yes" : answer(source.sensitiveInformation);
   return {
     dataSubjects: array(source.dataSubjects),
     informationTypes: array(source.informationTypes),
+    informationDetails: String(source.informationDetails || "").slice(0, 1500),
     purposes: array(source.purposes),
     collectionChannels: array(source.collectionChannels),
     systems: array(source.systems),
@@ -43,8 +50,9 @@ export function normalizeActivityFacts(value: unknown): ActivityFacts {
     deletionMethod: String(source.deletionMethod || "").slice(0, 1000),
     rightsChannel: String(source.rightsChannel || "").slice(0, 500),
     automatedDecision: answer(source.automatedDecision),
-    sensitiveInformation: answer(source.sensitiveInformation),
-    minorsInvolved: answer(source.minorsInvolved),
+    sensitiveInformation,
+    sensitiveCategories,
+    minorsInvolved,
     crossBorderAccess: answer(source.crossBorderAccess),
     notes: String(source.notes || "").slice(0, 2000),
     confirmedAt: source.confirmedAt ? String(source.confirmedAt) : null
@@ -66,7 +74,7 @@ export function activityFactsCompleteness(facts: ActivityFacts): number {
     facts.deletionMethod.trim().length > 0,
     facts.rightsChannel.trim().length > 0,
     facts.automatedDecision !== "",
-    facts.sensitiveInformation !== "",
+    facts.sensitiveInformation !== "" && (facts.sensitiveInformation !== "yes" || (facts.sensitiveCategories?.length || 0) > 0 || facts.minorsInvolved === "yes"),
     facts.minorsInvolved !== "",
     facts.crossBorderAccess !== ""
   ];
