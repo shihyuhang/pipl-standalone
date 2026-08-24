@@ -30,6 +30,10 @@ type MaterialAiPreview = {
   redactionLabels: string[];
   restorationNotice: string;
 };
+type ImportPreview = {
+  fileName: string; mimeType: string; byteSize: number; contentHash: string; extension: string;
+  content: string; extractionMethod: string; requiresManualText: boolean; notice: string;
+};
 
 function buildLineDiff(before: string, after: string) {
   const oldLines = before.split("\n"); const newLines = after.split("\n");
@@ -57,6 +61,18 @@ export default function DocumentsPage() {
   const [selected, setSelected] = useState<BusinessDocument | null>(null);
   const [tab, setTab] = useState<DetailTab>("overview");
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
+  const [importName, setImportName] = useState("");
+  const [importType, setImportType] = useState("privacy_notice");
+  const [importAudienceGroup, setImportAudienceGroup] = useState<MaterialAudienceGroup>("consumer");
+  const [importAudience, setImportAudience] = useState("");
+  const [importScope, setImportScope] = useState("");
+  const [importDescription, setImportDescription] = useState("");
+  const [importCreatedBy, setImportCreatedBy] = useState("");
+  const [importContent, setImportContent] = useState("");
+  const [importActivityIds, setImportActivityIds] = useState<string[]>([]);
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
   const [audienceGroup, setAudienceGroup] = useState<MaterialAudienceGroup>("business_contact");
@@ -159,6 +175,53 @@ export default function DocumentsPage() {
     else setError(payload.message || "生成材料失败，请稍后重试。");
     setBusy(false);
   };
+  const openImport = () => {
+    const initial = materialCatalog.find(item => item.code === "privacy_notice") || materialCatalog[0];
+    setImportFile(null); setImportPreview(null); setImportName(""); setImportContent(""); setImportDescription("");
+    setImportCreatedBy(""); setImportActivityIds([]); setImportType(initial.code); setImportAudienceGroup(initial.audienceGroups[0]);
+    setImportAudience(initial.defaultAudience); setImportScope(initial.defaultScope); setError(""); setImporting(true);
+  };
+  const chooseImportType = (code: string) => {
+    const next = materialCatalog.find(item => item.code === code)!;
+    setImportType(code); setImportAudienceGroup(next.audienceGroups[0]);
+    setImportAudience(next.defaultAudience); setImportScope(next.defaultScope);
+  };
+  const previewImportFile = async (file: File | null) => {
+    setImportFile(file); setImportPreview(null); setImportContent(""); setError("");
+    if (!file) return;
+    setBusy(true);
+    const form = new FormData(); form.append("file", file);
+    const response = await fetch("/api/documents/import/preview", { method: "POST", body: form });
+    const payload = await response.json();
+    if (response.ok) {
+      setImportPreview(payload); setImportContent(payload.content || "");
+      setImportName(file.name.replace(/\.(txt|md|html?|docx|pdf)$/i, ""));
+    } else setError(payload.message || "文件读取失败，请重新选择。");
+    setBusy(false);
+  };
+  const importDocument = async () => {
+    if (!importFile) return;
+    setBusy(true); setError("");
+    const form = new FormData();
+    form.append("file", importFile); form.append("name", importName); form.append("type", importType);
+    form.append("audienceGroup", importAudienceGroup); form.append("audience", importAudience); form.append("scope", importScope);
+    form.append("description", importDescription); form.append("createdBy", importCreatedBy); form.append("content", importContent);
+    form.append("activityIds", JSON.stringify(importActivityIds));
+    const response = await fetch("/api/documents/import", { method: "POST", body: form });
+    const payload = await response.json();
+    if (response.ok) {
+      const created = payload as BusinessDocument;
+      const draft = created.versions?.find(version => version.status === "draft") || created.versions?.[0];
+      setDocuments(current => [created, ...current.filter(document => document.id !== created.id)]);
+      setSelected(created); setImporting(false); setTab("versions");
+      if (draft) {
+        setContent(draft.content); setSummary(draft.changeSummary); setCreatedBy(draft.createdBy || "");
+        setEditor({ mode: "edit", versionId: draft.id, justCreated: true });
+      }
+      void load(created.id);
+    } else setError(payload.message || "导入失败，请检查后重试。");
+    setBusy(false);
+  };
 
   const loadAiPreview = async (excludedFields?: string[]) => {
     setPreviewBusy(true); setError("");
@@ -255,13 +318,13 @@ export default function DocumentsPage() {
   const hasActionItems = needsConfirmDocs.length > 0 || draftDocs.length > 0 || uncoveredGroups.length > 0;
 
   return <>
-    <section className="page-heading"><div><p className="eyebrow">合规材料</p><h1>材料版本中心</h1><p>生成并核对草稿后直接发布；业务变化时提示更新，同时保留每个历史版本和发布记录。</p></div><button className="button primary" onClick={openCreate}><Plus size={17} /> 生成材料</button></section>
+    <section className="page-heading"><div><p className="eyebrow">合规材料</p><h1>材料版本中心</h1><p>生成或导入已有材料，核对草稿后发布；业务变化时提示更新，同时保留历史版本、原文件和发布记录。</p></div><div className="heading-actions"><button className="button secondary" onClick={openImport}><UploadCloud size={17} /> 导入已有材料</button><button className="button primary" onClick={openCreate}><Plus size={17} /> 生成材料</button></div></section>
     {hasActionItems && <section className="action-items">
       {needsConfirmDocs.length > 0 && <div className="action-item"><AlertTriangle /><div><strong>{needsConfirmDocs.length} 份材料需要确认</strong><span>{needsConfirmDocs.map(item => item.name).slice(0, 3).join("、")}{needsConfirmDocs.length > 3 ? " 等" : ""}：业务发生变化，请核对是否需要修订。</span></div></div>}
       {draftDocs.length > 0 && <div className="action-item"><Clock3 /><div><strong>{draftDocs.length} 份草稿待发布</strong><span>{draftDocs.map(item => item.name).slice(0, 3).join("、")}{draftDocs.length > 3 ? " 等" : ""}：草稿不能作为已建立的正式材料，请核对后直接发布。</span></div></div>}
       {uncoveredGroups.map(item => <div className="action-item" key={item.code}><AlertTriangle /><div><strong>{item.name}尚无有效材料覆盖</strong><span>{item.uncoveredCount} 项相关业务没有已发布的对外告知；同一人群可用一份材料覆盖多项业务。</span></div></div>)}
     </section>}
-    {error && !creating && !editor && !workflow && <div className="alert danger">{error}</div>}
+    {error && !creating && !importing && !editor && !workflow && <div className="alert danger">{error}</div>}
 
     {documents.length ? <div className="document-layout lifecycle-layout"><div className="document-list">{documents.map(document => <button key={document.id} className={selected?.id === document.id ? "document-row selected" : "document-row"} onClick={() => chooseDocument(document)}><div className="doc-icon"><FileText /></div><div><strong>{document.name}</strong><span>{materialAudienceName(document.audienceGroup)} · {materialTypeName(document.type)}</span><small>{document.currentVersion ? `${document.currentVersion.versionNumber} 当前有效` : "尚未发布"} · {healthText[document.healthStatus]}</small></div><StatusBadge status={document.healthStatus} /></button>)}</div><div className="document-detail lifecycle-detail">{selected ? <>
       <div className="detail-header"><div><p className="eyebrow">{materialAudienceName(selected.audienceGroup)} · {materialTypeName(selected.type)} · {healthText[selected.healthStatus]}</p><h2>{selected.name}</h2><p>具体适用对象：{selected.audience || selected.scope}</p></div><div className="detail-header-actions">{activeRevision?.status === "draft" ? <button className="button secondary" onClick={() => openRevision(activeRevision)}><FileClock size={16} /> 继续编辑草稿</button> : !activeRevision && <button className="button secondary" onClick={() => openRevision()}><FilePlus2 size={16} /> 准备新版本</button>}{!selected.currentVersionId && !(selected.versions || []).some(version => version.publishedAt) && <button className="button danger secondary" disabled={busy} onClick={() => setConfirmingDelete(true)}><Trash2 size={15} /> 删除材料</button>}</div></div>
@@ -269,6 +332,7 @@ export default function DocumentsPage() {
       {!!selected.metadata?.pendingFacts?.length && <div className="material-health-alert"><AlertTriangle /><div><strong>AI标记了发布前待确认事项</strong><p>{selected.metadata.pendingFacts.join("；")}</p></div></div>}
       {selected.reviewReason && <div className="material-health-alert"><AlertTriangle /><div><strong>业务变化后需要确认这份材料</strong><p>{selected.reviewReason}</p></div></div>}
       <nav className="document-tabs">{(["overview", "versions", "records"] as DetailTab[]).map(item => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{({ overview: "当前概况", versions: "版本与对比", records: "记录与依据" } as Record<DetailTab, string>)[item]}</button>)}</nav>
+      {!!selected.attachments?.length && tab === "overview" && <div className="imported-source-card"><FileText /><div><strong>导入原文件</strong><span>{selected.attachments[0].fileName} · {(selected.attachments[0].byteSize / 1024).toFixed(1)} KB</span><small>SHA-256：{selected.attachments[0].contentHash.slice(0, 16)}…</small></div><a className="button secondary small" href={`/api/documents/${selected.id}/attachments/${selected.attachments[0].id}`}>下载原文件</a></div>}
 
       {tab === "overview" && <div className="document-tab-panel"><div className="document-basis"><div><span>当前有效版本</span><strong>{selected.currentVersion?.versionNumber || "尚未发布"}</strong></div><div><span>面向人群/场景</span><strong>{materialAudienceName(selected.audienceGroup)}</strong></div><div><span>覆盖业务</span><strong>{selected.activityIds.length} 项</strong></div></div>{selected.description && <p className="document-description">{selected.description}</p>}{selected.currentVersion ? <article className="current-version-card"><div><FileCheck2 /><div><strong>{selected.currentVersion.versionNumber} 正式版本</strong><span>{selected.currentVersion.publishedAt ? new Date(selected.currentVersion.publishedAt).toLocaleString("zh-CN") : ""}</span></div></div><button className="button secondary small" onClick={() => { setContent(selected.currentVersion!.content); setSummary(selected.currentVersion!.changeSummary); setEditor({ mode: "view", versionId: selected.currentVersion!.id }); }}>查看完整内容</button></article> : <div className="alert warning">目前只有草稿，尚不能作为已完成的正式材料。</div>}
         {!!selected.pendingImpacts?.length && <section className="impact-section"><h3>待处理的业务变化</h3>{selected.pendingImpacts.map(impact => <article key={impact.id} className="impact-card"><AlertTriangle /><div><strong>{impact.reason}</strong><p>建议核对：{impact.affectedSections.join("、")}</p><small>{new Date(impact.createdAt).toLocaleString("zh-CN")}{impact.dueAt ? ` · 计划于 ${new Date(impact.dueAt).toLocaleDateString("zh-CN")} 前处理` : ""}</small></div><div className="impact-actions">{!activeRevision && <button className="button small primary" onClick={() => openRevision()}>创建草稿</button>}<button className="text-link" disabled={busy} onClick={() => handleImpact(impact, "no_change")}>无需修改</button><button className="text-link" disabled={busy} onClick={() => handleImpact(impact, "defer")}>暂缓处理</button></div></article>)}</section>}
@@ -293,6 +357,18 @@ export default function DocumentsPage() {
       </div>
     </section>}
 
+    {importing && <div className="modal-backdrop" onClick={() => !busy && setImporting(false)}><section className="modal import-material-modal" onClick={event => event.stopPropagation()}><div className="modal-header"><div><p className="eyebrow">导入已有材料</p><h2>把现有规范纳入版本管理</h2><p>原文件完整保留；提取正文作为 V1 草稿，可继续编辑、复核和发布。</p></div><button className="icon-button" aria-label="关闭" disabled={busy} onClick={() => setImporting(false)}>×</button></div>
+      <div className="import-flow-note"><UploadCloud /><div><strong>支持 TXT、Markdown、HTML、DOCX 和 PDF，单个文件不超过 10MB</strong><span>PDF 首版保留原件并由您补充可编辑正文；其他格式会自动提取正文供核对。</span></div></div>
+      <label className="field import-file-field"><span>选择原文件</span><input type="file" accept=".txt,.md,.html,.htm,.docx,.pdf" disabled={busy} onChange={event => void previewImportFile(event.target.files?.[0] || null)} /></label>
+      {importPreview && <><div className="import-file-summary"><FileText /><div><strong>{importPreview.fileName}</strong><span>{(importPreview.byteSize / 1024).toFixed(1)} KB · SHA-256 {importPreview.contentHash.slice(0, 12)}…</span></div></div><div className={`alert ${importPreview.requiresManualText ? "warning" : "success"}`}>{importPreview.notice}</div>
+        <div className="two-column-fields"><label className="field"><span>材料名称</span><input value={importName} onChange={event => setImportName(event.target.value)} /></label><label className="field"><span>材料类型</span><select value={importType} onChange={event => chooseImportType(event.target.value)}>{materialCatalog.map(item => <option key={item.code} value={item.code}>{categoryName[item.category]} · {item.name}</option>)}</select></label></div>
+        <div className="two-column-fields"><label className="field"><span>面向人群 / 使用对象</span><select value={importAudienceGroup} onChange={event => setImportAudienceGroup(event.target.value as MaterialAudienceGroup)}>{materialAudienceOptions.filter(item => materialCatalog.find(def => def.code === importType)?.audienceGroups.includes(item.code)).map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label><label className="field"><span>具体适用对象</span><input value={importAudience} onChange={event => setImportAudience(event.target.value)} /></label></div>
+        <label className="field"><span>适用范围</span><input value={importScope} onChange={event => setImportScope(event.target.value)} /></label><div className="two-column-fields"><label className="field"><span>内部说明（选填）</span><input value={importDescription} onChange={event => setImportDescription(event.target.value)} placeholder="例如：现行官网版本、2026 年内部制度" /></label><label className="field"><span>导入或经办人（选填）</span><input value={importCreatedBy} onChange={event => setImportCreatedBy(event.target.value)} /></label></div>
+        {!!activities.length && <div className="import-activity-picker"><strong>关联业务（选填）</strong><span>关联后，业务事实变化时会提示复核这份材料。</span><div>{activities.map(activity => <label key={activity.id}><input type="checkbox" checked={importActivityIds.includes(activity.id)} onChange={() => setImportActivityIds(current => current.includes(activity.id) ? current.filter(id => id !== activity.id) : [...current, activity.id])} /> {activity.name}</label>)}</div></div>}
+        <label className="field import-content-field"><span>可编辑正文</span><textarea value={importContent} onChange={event => setImportContent(event.target.value)} placeholder={importPreview.requiresManualText ? "请从 PDF 中复制正文，或填写用于版本管理的完整文本（至少 20 个字）" : "请核对自动提取的正文"} /><small className="field-help">导入后将立即打开这份草稿；发布前请重点核对表格、页眉页脚、签章和附件引用。</small></label>
+      </>}
+      {error && <div className="alert danger">{error}</div>}<div className="modal-actions"><button className="button secondary" disabled={busy} onClick={() => setImporting(false)}>取消</button><button className="button primary" disabled={busy || !importFile || !importPreview || importName.trim().length < 2 || !importAudience.trim() || !importScope.trim() || importContent.trim().length < 20} onClick={importDocument}>{busy ? <RefreshCw size={16} className="spin" /> : <UploadCloud size={16} />} {busy ? "正在处理…" : "导入并打开草稿"}</button></div></section></div>}
+
     {creating && <div className="modal-backdrop" onClick={() => setCreating(false)}><section className="modal material-wizard" onClick={event => event.stopPropagation()}><div className="modal-header"><div><p className="eyebrow">建立合规材料 · 第 {step} 步，共 3 步</p><h2>{step === 1 ? "面向谁、建什么材料？" : step === 2 ? "用一份材料覆盖哪些业务？" : "核对生成范围"}</h2></div><button className="icon-button" onClick={() => setCreating(false)}>×</button></div><div className="wizard-progress"><span className={step >= 1 ? "active" : ""} /><span className={step >= 2 ? "active" : ""} /><span className={step >= 3 ? "active" : ""} /></div>
       {step === 1 && <><div className="selection-help"><strong>先确定这份材料给谁用，再选类型</strong><span>前五类是对外告知的对象，应按人群分别建立；最后一类"单位内部和合作方"用于制度、协议、台账和办理记录，不面向具体个人，可覆盖全部业务。"基础材料"建议建立；"条件触发"只在对应情形发生时建立。</span></div><div className="wizard-two-col"><div className="wizard-col"><h3>面向人群 / 场景</h3><div className="audience-choice-grid single"><span className="audience-group-label">对外告知对象</span>{materialAudienceOptions.filter(item => item.external).map(item => <button key={item.code} className={audienceGroup === item.code ? "audience-choice selected" : "audience-choice"} onClick={() => chooseAudienceGroup(item.code)}><div><strong>{item.name}</strong><p>{item.description}</p></div>{audienceGroup === item.code && <Check size={17} />}</button>)}<span className="audience-group-label">内部与合作方</span>{materialAudienceOptions.filter(item => !item.external).map(item => <button key={item.code} className={audienceGroup === item.code ? "audience-choice selected" : "audience-choice"} onClick={() => chooseAudienceGroup(item.code)}><div><strong>{item.name}</strong><p>{item.description}</p></div>{audienceGroup === item.code && <Check size={17} />}</button>)}</div></div><div className="wizard-col"><h3>材料类型</h3><div className="material-type-groups">{(["external", "internal", "agreement", "register", "record"] as MaterialCategory[]).map(category => { const definitions = availableDefinitions.filter(item => item.category === category); return definitions.length ? <section key={category}><h3>{categoryName[category]}</h3><div className="material-type-grid single">{definitions.map(item => <button key={item.code} className={type === item.code ? "material-type selected" : "material-type"} onClick={() => chooseType(item.code)}><div><span className={`material-requirement ${item.requirement || "basic"}`}>{materialRequirementName[item.requirement || "basic"]}</span><strong>{item.name}</strong><p>{item.description}</p>{item.trigger && <small>适用情形：{item.trigger}</small>}</div>{type === item.code && <Check size={17} />}</button>)}</div></section> : null; })}</div></div></div></>}
       {step === 2 && <><div className="selection-help"><strong>默认合并同一人群下的相关业务</strong><span>可一次选择多项业务写入同一份材料。只有告知时点、渠道或责任主体确实不同，才建议另建一份。</span></div><div className="activity-select-list">{activities.map(activity => { const factsReady = activity.completeness === 1 && !!activity.facts.confirmedAt; const audienceReady = activityMatchesAudience(activity, audienceGroup); const disabled = !factsReady || !audienceReady; return <button key={activity.id} disabled={disabled} className={`${activityIds.includes(activity.id) ? "activity-select selected" : "activity-select"}${!audienceReady ? " incompatible" : ""}`} onClick={() => toggleActivity(activity.id)}><span className="check-box">{activityIds.includes(activity.id) && <Check size={14} />}</span><div><strong>{activity.name}</strong><p>{activity.description}</p><small>{!audienceReady ? audienceGroup === "internal" ? "" : `不属于“${materialAudienceName(audienceGroup)}”，应放入对应人群的材料` : factsReady ? "业务事实已确认，可与同人群业务合并" : `仅完成 ${Math.round(activity.completeness * 100)}%，请先完善`}</small></div></button>; })}</div>{!activities.length && <div className="alert warning">还没有业务记录，请先到“我的业务”建立并确认业务。</div>}{activities.length > 0 && !activities.some(activity => activityMatchesAudience(activity, audienceGroup)) && audienceGroup !== "internal" && <div className="alert warning">当前没有识别到属于“{materialAudienceName(audienceGroup)}”的业务。请先完善业务的场景或涉及人员信息。</div>}</>}
@@ -304,11 +380,11 @@ export default function DocumentsPage() {
 
     {editor && selected && <div className="modal-backdrop document-modal-backdrop" onClick={() => setEditor(null)}>
       <section className={`modal editor-modal ${editor.mode === "view" ? "reader-modal" : ""}`} onClick={event => event.stopPropagation()}>
-        <div className="modal-header"><div><p className="eyebrow">{editor.justCreated ? "材料已生成 · 请核对草稿" : editor.mode === "view" ? "版本内容（只读）" : editor.mode === "edit" ? "编辑现有草稿" : "准备新版本"}</p><h2>{selected.name}</h2></div><button className="icon-button" aria-label="关闭" onClick={() => setEditor(null)}>×</button></div>
+        <div className="modal-header"><div><p className="eyebrow">{editor.justCreated ? selected.metadata?.generationMethod === "import" ? "材料已导入 · 请核对草稿" : "材料已生成 · 请核对草稿" : editor.mode === "view" ? "版本内容（只读）" : editor.mode === "edit" ? "编辑现有草稿" : "准备新版本"}</p><h2>{selected.name}</h2></div><button className="icon-button" aria-label="关闭" onClick={() => setEditor(null)}>×</button></div>
         {editor.mode === "view" ? <div className="document-reader-wrap"><article className="document-reader"><pre>{content}</pre></article></div> : <div className="document-editor-body">
           <div className="two-column-fields"><label className="field"><span>修改说明</span><input value={summary} onChange={event => setSummary(event.target.value)} /></label><label className="field"><span>创建或经办人</span><input value={createdBy} onChange={event => setCreatedBy(event.target.value)} placeholder="例如：张三" /></label></div>
           <label className="field document-editor-field"><span>完整内容</span><textarea className="document-editor" value={content} onChange={event => setContent(event.target.value)} /></label>
-          {editor.justCreated && <div className="alert success">已为您打开刚刚生成的草稿。核对并按需修改后，可保存草稿或直接进入负责人发布确认。</div>}{error && <div className="alert danger">{error}</div>}
+          {editor.justCreated && <div className="alert success">{selected.metadata?.generationMethod === "import" ? "已为您打开刚刚导入的草稿。原文件已保留；请核对提取正文后保存或发布。" : "已为您打开刚刚生成的草稿。核对并按需修改后，可保存草稿或直接进入负责人发布确认。"}</div>}{error && <div className="alert danger">{error}</div>}
         </div>}
         <div className="modal-actions"><button className="button secondary" onClick={() => setEditor(null)}>关闭</button>{editor.mode !== "view" && <><button className="button secondary" disabled={busy || summary.length < 2 || content.length < 20} onClick={() => void saveRevision("close")}><FileClock size={16} /> 保存草稿</button><button className="button primary" disabled={busy || summary.length < 2 || content.length < 20} onClick={() => void saveRevision("publish")}><UploadCloud size={16} /> 保存并发布</button></>}</div>
       </section>

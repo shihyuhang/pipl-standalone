@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
-import type { ActivityFacts, AssessmentFinding, AssessmentRun, AuditConclusion, AuditInstance, AuditResponse, AuditEvent, BusinessDocument, DashboardData, DocumentChangeImpact, DocumentMetadata, DocumentVersion, EnterpriseProfile, FormStatus, ImpactAnswer, MaterialAiConfiguration, MaterialAiProvider, MaterialAiRuntimeConfiguration, MaterialAudienceGroup, PipiaCategoryCode, PipiaInstance, PipiaResponse, ProcessingActivity, TaskItem, YesNoNA } from "./types";
+import type { ActivityFacts, AssessmentFinding, AssessmentRun, AuditConclusion, AuditInstance, AuditResponse, AuditEvent, BusinessDocument, DashboardData, DocumentAttachment, DocumentChangeImpact, DocumentMetadata, DocumentVersion, EnterpriseProfile, FormStatus, ImpactAnswer, MaterialAiConfiguration, MaterialAiProvider, MaterialAiRuntimeConfiguration, MaterialAudienceGroup, PipiaCategoryCode, PipiaInstance, PipiaResponse, ProcessingActivity, TaskItem, YesNoNA } from "./types";
 import { activityFactsCompleteness, emptyActivityFacts, normalizeActivityFacts } from "./activity-facts.ts";
 import { auditItems, buildAuditSignals } from "./audit-template.ts";
 import { buildSystemTaskRules } from "./task-rules.ts";
@@ -57,6 +57,13 @@ const schemaSql = `
     publish_channel TEXT NOT NULL DEFAULT '', publication_evidence TEXT NOT NULL DEFAULT ''
   );
   CREATE UNIQUE INDEX IF NOT EXISTS document_one_effective_idx ON document_version(document_id) WHERE status='effective';
+  CREATE TABLE IF NOT EXISTS document_attachment (
+    id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES business_document(id),
+    version_id TEXT NOT NULL REFERENCES document_version(id), file_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL, byte_size INTEGER NOT NULL, content_hash TEXT NOT NULL,
+    content BLOB NOT NULL, created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS document_attachment_document_idx ON document_attachment(document_id, created_at DESC);
   CREATE TABLE IF NOT EXISTS document_change_impact (
     id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES business_document(id), source_type TEXT NOT NULL,
     source_id TEXT, changed_fields_json TEXT NOT NULL DEFAULT '[]', reason TEXT NOT NULL,
@@ -524,7 +531,7 @@ export function updateActivityFacts(id: string, input: ActivityFacts, remark?: s
   return getActivity(id);
 }
 
-export function createDocument(input: { name: string; type: string; scope: string; audienceGroup?: MaterialAudienceGroup; description?: string; audience?: string; activityIds?: string[]; metadata?: DocumentMetadata; content: string; changeSummary?: string }): BusinessDocument {
+export function createDocument(input: { name: string; type: string; scope: string; audienceGroup?: MaterialAudienceGroup; description?: string; audience?: string; activityIds?: string[]; metadata?: DocumentMetadata; content: string; changeSummary?: string; createdBy?: string }): BusinessDocument {
   const documentId = randomUUID(); const versionId = randomUUID(); const createdAt = now();
   const activityIds = input.activityIds || [];
   getDb().prepare(`INSERT INTO business_document
@@ -535,9 +542,38 @@ export function createDocument(input: { name: string; type: string; scope: strin
   getDb().prepare(`INSERT INTO document_version
     (id, document_id, version_number, status, content, change_summary, created_at, published_at, source_version_id,
      content_hash, facts_snapshot_json, created_by)
-    VALUES (?, ?, 'V1', 'draft', ?, ?, ?, NULL, NULL, ?, ?, '系统生成')`)
-    .run(versionId, documentId, input.content, input.changeSummary || "建立首个草稿", createdAt, hashContent(input.content), JSON.stringify(buildDocumentFactsSnapshot(activityIds)));
+    VALUES (?, ?, 'V1', 'draft', ?, ?, ?, NULL, NULL, ?, ?, ?)`)
+    .run(versionId, documentId, input.content, input.changeSummary || "建立首个草稿", createdAt, hashContent(input.content), JSON.stringify(buildDocumentFactsSnapshot(activityIds)), input.createdBy || "系统生成");
   addAuditEvent("document.created", `创建文档草稿：${input.name}`);
+  return getDocument(documentId)!;
+}
+
+export function createImportedDocument(input: {
+  name: string; type: string; scope: string; audienceGroup: MaterialAudienceGroup; description?: string;
+  audience: string; activityIds?: string[]; metadata: DocumentMetadata; content: string; createdBy?: string;
+  attachment: { fileName: string; mimeType: string; byteSize: number; contentHash: string; content: Buffer };
+}): BusinessDocument {
+  const documentId = randomUUID(); const versionId = randomUUID(); const attachmentId = randomUUID(); const createdAt = now();
+  const activityIds = input.activityIds || []; const db = getDb();
+  db.exec("BEGIN");
+  try {
+    db.prepare(`INSERT INTO business_document
+      (id, name, type, scope, current_version_id, audience_group, description, audience, activity_ids_json, metadata_json,
+       health_status, review_reason, review_due_at, updated_at)
+      VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 'updating', '', NULL, ?)`)
+      .run(documentId, input.name, input.type, input.scope, input.audienceGroup, input.description || "", input.audience, JSON.stringify(activityIds), JSON.stringify(input.metadata), createdAt);
+    db.prepare(`INSERT INTO document_version
+      (id, document_id, version_number, status, content, change_summary, created_at, published_at, source_version_id,
+       content_hash, facts_snapshot_json, created_by)
+      VALUES (?, ?, 'V1', 'draft', ?, '导入已有材料，建立首个草稿', ?, NULL, NULL, ?, ?, ?)`)
+      .run(versionId, documentId, input.content, createdAt, hashContent(input.content), JSON.stringify(buildDocumentFactsSnapshot(activityIds)), input.createdBy || "材料导入");
+    db.prepare(`INSERT INTO document_attachment
+      (id, document_id, version_id, file_name, mime_type, byte_size, content_hash, content, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(attachmentId, documentId, versionId, input.attachment.fileName, input.attachment.mimeType, input.attachment.byteSize, input.attachment.contentHash, input.attachment.content, createdAt);
+    db.exec("COMMIT");
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
+  addAuditEvent("document.imported", `导入已有材料：${input.name}（${input.attachment.fileName}）`);
   return getDocument(documentId)!;
 }
 
@@ -628,6 +664,20 @@ function mapVersion(row: Record<string, unknown>): DocumentVersion {
   };
 }
 
+function mapDocumentAttachment(row: Record<string, unknown>): DocumentAttachment {
+  return {
+    id: String(row.id), documentId: String(row.document_id), versionId: String(row.version_id),
+    fileName: String(row.file_name), mimeType: String(row.mime_type), byteSize: Number(row.byte_size),
+    contentHash: String(row.content_hash), createdAt: String(row.created_at)
+  };
+}
+
+export function getDocumentAttachment(documentId: string, attachmentId: string): (DocumentAttachment & { content: Buffer }) | null {
+  const row = getDb().prepare("SELECT * FROM document_attachment WHERE id=? AND document_id=?").get(attachmentId, documentId) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return { ...mapDocumentAttachment(row), content: Buffer.from(row.content as Uint8Array) };
+}
+
 function mapDocumentImpact(row: Record<string, unknown>): DocumentChangeImpact {
   return {
     id: String(row.id), documentId: String(row.document_id), sourceType: String(row.source_type) as DocumentChangeImpact["sourceType"],
@@ -653,6 +703,7 @@ export function getDocument(id: string): BusinessDocument | null {
   if (!row) return null;
   const versions = (getDb().prepare("SELECT * FROM document_version WHERE document_id=? ORDER BY created_at DESC").all(id) as Record<string, unknown>[]).map(mapVersion);
   const pendingImpacts = (getDb().prepare("SELECT * FROM document_change_impact WHERE document_id=? AND status IN ('open','draft_created','deferred') ORDER BY created_at DESC").all(id) as Record<string, unknown>[]).map(mapDocumentImpact);
+  const attachments = (getDb().prepare("SELECT id, document_id, version_id, file_name, mime_type, byte_size, content_hash, created_at FROM document_attachment WHERE document_id=? ORDER BY created_at DESC").all(id) as Record<string, unknown>[]).map(mapDocumentAttachment);
   let activityIds: string[] = []; let metadata = {} as DocumentMetadata;
   try { activityIds = JSON.parse(String(row.activity_ids_json || "[]")); } catch { activityIds = []; }
   try { metadata = JSON.parse(String(row.metadata_json || "{}")); } catch { metadata = {} as DocumentMetadata; }
@@ -663,7 +714,7 @@ export function getDocument(id: string): BusinessDocument | null {
     activityIds, metadata,
     healthStatus: String(row.health_status || (row.current_version_id ? "current" : "unpublished")) as BusinessDocument["healthStatus"],
     reviewReason: String(row.review_reason || ""), reviewDueAt: row.review_due_at ? String(row.review_due_at) : null,
-    updatedAt: String(row.updated_at || ""), pendingImpacts,
+    updatedAt: String(row.updated_at || ""), pendingImpacts, attachments,
     currentVersionId: row.current_version_id ? String(row.current_version_id) : null,
     currentVersion: versions.find(v => v.id === row.current_version_id) || null, versions
   };
@@ -681,6 +732,7 @@ export function deleteDocument(documentId: string): BusinessDocument {
   db.exec("BEGIN");
   try {
     db.prepare("DELETE FROM document_change_impact WHERE document_id=?").run(documentId);
+    db.prepare("DELETE FROM document_attachment WHERE document_id=?").run(documentId);
     db.prepare("DELETE FROM document_version WHERE document_id=?").run(documentId);
     const result = db.prepare("DELETE FROM business_document WHERE id=?").run(documentId);
     if (Number(result.changes) !== 1) throw new Error("DELETE_FAILED");

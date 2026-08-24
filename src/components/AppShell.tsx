@@ -24,7 +24,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-shell">
       <aside className={`sidebar ${open ? "sidebar-open" : ""}`}>
-        <div className="brand"><div className="brand-mark"><ShieldCheck size={23} /></div><div><strong>个保轻舟</strong><span>小型处理者工作台</span></div></div>
+        <div className="brand"><div className="brand-mark"><ShieldCheck size={23} /></div><div><strong>个保轻舟</strong><span>小型处理者数据合规专用工作台</span></div></div>
         <button className="mobile-close" onClick={() => setOpen(false)} aria-label="关闭菜单"><X /></button>
         <nav>
           {navigation.map(item => {
@@ -34,13 +34,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             return <Link key={item.href} href={item.href} className={active ? "active" : ""} onClick={() => setOpen(false)}><item.icon size={19} /><span>{item.label}</span></Link>;
           })}
         </nav>
-        <div className="sidebar-foot"><div className="safety-dot" /> <div><strong>本地安全存储</strong><span>AI 仅接收任务所需信息</span></div></div>
       </aside>
       <div className="content-shell">
         <header className="topbar">
           <button className="mobile-menu" onClick={() => setOpen(true)} aria-label="打开菜单"><Menu /></button>
           <div className="topbar-note">面向小型个人信息处理者的合规工作台</div>
-          <div className="avatar">负责人</div>
         </header>
         <main className="page-container">{children}</main>
       </div>

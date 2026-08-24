@@ -129,6 +129,18 @@ export interface BusinessDocument {
   currentVersionId: string | null;
   currentVersion?: DocumentVersion | null;
   versions?: DocumentVersion[];
+  attachments?: DocumentAttachment[];
+}
+
+export interface DocumentAttachment {
+  id: string;
+  documentId: string;
+  versionId: string;
+  fileName: string;
+  mimeType: string;
+  byteSize: number;
+  contentHash: string;
+  createdAt: string;
 }
 
 export type MaterialAudienceGroup = "consumer" | "business_contact" | "employee" | "candidate" | "visitor" | "internal";
@@ -158,7 +170,13 @@ export interface DocumentMetadata {
   requirementLevel?: "basic" | "conditional" | "evidence";
   trigger?: string;
   legalBasis?: string;
-  generationMethod?: "ai" | "template";
+  generationMethod?: "ai" | "template" | "import";
+  importedFileName?: string;
+  importedMimeType?: string;
+  importedFileSize?: number;
+  importedFileHash?: string;
+  importedAt?: string;
+  importExtractionMethod?: string;
   aiProvider?: string;
   aiModel?: string;
   aiPromptVersion?: string;
