@@ -42,7 +42,7 @@ export function classifyActivityAudienceGroups(activity: ProcessingActivity): Ma
   if (/求职|候选人|应聘|招聘对象/.test(subjects)) groups.add("candidate");
   if (/供应商|合作方|合作伙伴|客户联系人|企业联系人|渠道商|商务联系人/.test(subjects)) groups.add("business_contact");
   if (/访客|来访|现场人员|出入人员|监控区域/.test(subjects)) groups.add("visitor");
-  if (/消费者|用户|会员|顾客|咨询人|购买人|收货人|订单联系人/.test(subjects)) groups.add("consumer");
+  if (/消费者|用户|会员|顾客|咨询人|购买人|收货人|订单联系人|患者|病人|就诊人|产品使用者|终端使用者|终端用户|服务对象|保险受益人|活动参与人/.test(subjects)) groups.add("consumer");
   return [...groups];
 }
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildSystemTaskRules, type SystemTaskSnapshot } from "../src/lib/task-rules.ts";
+import { buildSystemTaskRules, shouldCreateUnsatisfiedSystemTask, type SystemTaskSnapshot } from "../src/lib/task-rules.ts";
 
 const base: SystemTaskSnapshot = {
   onboardingCompleted: true, personCount: 80, countVerified: true, processingRole: "个人信息处理者",
@@ -35,9 +35,24 @@ test("任务完成依据不展示内部处理角色枚举", () => {
   assert.doesNotMatch(roleRule.completionBasis, /independent_processor|processingRole/);
 });
 
+test("人工复核完成后不因风险事实仍存在而立即重新置顶", () => {
+  const rule = buildSystemTaskRules({ ...base, sensitiveCategories: ["medical_health"] }).find(item => item.code === "HIGH-RISK-REVIEW")!;
+  assert.equal(shouldCreateUnsatisfiedSystemTask(rule, { completionMode: "manual", completedAt: "2026-08-26T10:00:00.000Z" }, "2026-08-26T09:00:00.000Z"), false);
+  assert.equal(shouldCreateUnsatisfiedSystemTask(rule, { completionMode: "manual", completedAt: "2026-08-26T08:00:00.000Z" }, "2026-08-26T09:00:00.000Z"), true);
+});
+
 test("同类业务的场景备注进入任务名称以便区分", () => {
   const rules = buildSystemTaskRules({ ...base, activities: [{ id: "activity-1", name: "消费者或会员", remark: "小程序会员", completeness: 0.4 }] });
   const activityRule = rules.find(item => item.code === "COMPLETE-activity-1")!;
   assert.match(activityRule.title, /消费者或会员 · 小程序会员/);
   assert.match(activityRule.evidenceNote, /小程序会员/);
+});
+
+test("具体业务触发影响评估后建立发布前任务并承接总体风险提醒", () => {
+  const rules = buildSystemTaskRules({ ...base, sensitiveCategories: ["medical_health"], activities: [{ id: "activity-1", name: "员工管理", completeness: 1, specialRiskCovered: true, pipiaRequired: true, pipiaComplete: false, pipiaReasons: ["处理敏感个人信息"] }] });
+  assert.equal(rules.find(item => item.code === "HIGH-RISK-REVIEW")?.satisfied, true);
+  const pipia = rules.find(item => item.code === "PIPIA-activity-1")!;
+  assert.equal(pipia.satisfied, false);
+  assert.equal(pipia.priority, "high");
+  assert.match(pipia.description, /发布为合规有效版本/);
 });

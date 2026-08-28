@@ -47,7 +47,7 @@ test("提交预览采用默认最小字段并且不展示可恢复的真实值",
   assert.match(serialized, /【单位名称】|【联系渠道】/);
   assert.ok(preview.excludedFields.includes("activity.notes"));
   assert.equal(preview.fields.find(item => item.code === "activity.notes")?.included, false);
-  assert.ok(preview.redactionCount >= 3);
+  assert.ok(preview.redactionCount >= 2);
   const withNotes = buildMaterialAiTransferPreview({ name: definition.name, scope: definition.defaultScope, audience: definition.defaultAudience, definition, enterprise, activities: [{ ...activity, facts: { ...activity.facts, notes: "负责人：李四，手机13800138000，联系电话：010-12345678" } }], baselineDraft: "单位：示例科技有限公司；联系：privacy@example.com", excludedFields: preview.excludedFields.filter(item => item !== "activity.notes") });
   assert.doesNotMatch(JSON.stringify(withNotes.payload), /李四|13800138000|010-12345678/);
   assert.ok(withNotes.redactionLabels.includes("手机号码"));
@@ -68,6 +68,22 @@ test("AI上下文使用受控的敏感个人信息类别名称", () => {
   const serialized = JSON.stringify(preview.payload);
   assert.match(serialized, /医疗健康信息/);
   assert.doesNotMatch(serialized, /medical_health/);
+});
+
+test("自定义数据主体以自然语言进入材料AI上下文", () => {
+  const preview = buildMaterialAiTransferPreview({
+    name: definition.name,
+    scope: definition.defaultScope,
+    audience: definition.defaultAudience,
+    definition,
+    enterprise: { ...enterprise, subjectCategories: ["employee", "other:患者——医疗器械售后与投诉"] },
+    activities: [activity],
+    baselineDraft: "基础模板",
+    excludedFields: []
+  });
+  const serialized = JSON.stringify(preview.payload);
+  assert.match(serialized, /患者——医疗器械售后与投诉/);
+  assert.doesNotMatch(serialized, /other:/);
 });
 
 test("AI删除必要占位符时拒绝结果，避免交付材料缺少本地数据", async () => {

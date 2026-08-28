@@ -3,6 +3,7 @@ import { z } from "zod";
 import { addAuditEvent, updateEnterprise, upsertTask } from "@/lib/db";
 import { assessQualification } from "@/lib/qualification";
 import { sensitiveCategoryCodes } from "@/lib/sensitive-info";
+import { hasCompleteCustomSubjectSelection } from "@/lib/enterprise-subjects";
 
 export const runtime = "nodejs";
 
@@ -10,9 +11,14 @@ const schema = z.object({
   legalName: z.string().min(2).max(200), orgType: z.string().min(1), industry: z.string().trim().min(2).max(100),
   businessModel: z.enum(["B2B", "B2C", "both", "internal_only"]), ownership: z.string().min(1),
   processingRole: z.string().min(1), personCount: z.number().int().nonnegative().nullable(), countVerified: z.boolean(),
-  subjectCategories: z.array(z.string()), sensitiveCategories: z.array(z.enum(sensitiveCategoryCodes)),
+  subjectCategories: z.array(z.string().trim().min(1).max(306)).min(1).max(20), customSubjectSelected: z.boolean().optional().default(false), sensitiveCategories: z.array(z.enum(sensitiveCategoryCodes)),
   minorsPossible: z.enum(["yes", "no", "unknown"]), crossBorder: z.enum(["yes", "no", "unknown"]),
-  privacyContactName: z.string().min(1), privacyContactRole: z.string().min(1), privacyContactChannel: z.string().min(1)
+  privacyContactName: z.string().min(1), privacyContactRole: z.string().min(1), privacyContactChannel: z.string().min(1),
+  publicContactDepartment: z.string().trim().min(2).max(100), publicContactChannel: z.string().trim().min(3).max(300)
+}).superRefine((value, context) => {
+  if (!hasCompleteCustomSubjectSelection(value.subjectCategories, value.customSubjectSelected)) {
+    context.addIssue({ code: "custom", path: ["subjectCategories"], message: "选择其他主体后必须说明具体主体及相关场景。" });
+  }
 });
 
 export async function POST(request: Request) {

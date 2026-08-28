@@ -221,7 +221,9 @@ test("只有从未发布的材料可以删除，已发布材料拒绝删除", as
 
 test("首次建档不会误触发已发布材料的复核，后续真实变更才会", async () => {
   const db = await import("../src/lib/db.ts");
-  const activity = db.listActivities()[0];
+  const sourceActivity = db.listActivities()[0];
+  const activity = db.createActivity({ scenarioCode: "ONBOARDING-IMPACT-CLEAN", name: "建档影响测试业务", description: "无专项风险的独立测试业务" });
+  db.updateActivityFacts(activity.id, { ...sourceActivity.facts, recipients: ["不向外部提供"], externalProcessingRelationships: [], externalRecipientDetails: "", sensitiveInformation: "no", sensitiveCategories: [], minorsInvolved: "no", crossBorderAccess: "no", automatedDecision: "no" });
   // 直接验证修复分支：在"尚未完成建档"状态下修改企业信息，不生成 enterprise_change 影响
   const base = db.getEnterprise();
   db.updateEnterprise({ ...base, onboardingCompleted: false });
@@ -254,4 +256,43 @@ test("业务场景备注可以独立保存并同步更新待办名称", async ()
   const updated = db.updateActivityFacts(activity.id, activity.facts, "小程序会员");
   assert.equal(updated?.remark, "小程序会员");
   assert.match(db.listTasks().find(item => item.code === `COMPLETE-${activity.id}`)?.title || "", /消费者或会员 · 小程序会员/);
+});
+
+test("具体业务已经承接专项风险时不再重复生成总体高风险事项", async () => {
+  const db = await import("../src/lib/db.ts");
+  const current = db.getEnterprise();
+  const { id: _id, updatedAt: _updatedAt, ...editable } = current;
+  db.updateEnterprise({ ...editable, sensitiveCategories: ["medical_health"], onboardingCompleted: true });
+  const tasks = db.listTasks();
+  assert.equal(tasks.some(item => item.code === "HIGH-RISK-REVIEW" && item.status !== "completed"), false);
+  assert.ok(tasks.some(item => item.code.startsWith("PIPIA-") && item.status !== "completed"), "应由具体业务的影响评估任务承接");
+});
+
+test("已知风险版本只能归档现状，负责人说明不能绕过有效发布门槛", async () => {
+  const db = await import("../src/lib/db.ts");
+  const activity = db.createActivity({ scenarioCode: "CUSTOM-RISK-ARCHIVE", name: "风险现状登记", description: "验证发布口径" });
+  db.updateActivityFacts(activity.id, {
+    ...emptyActivityFacts(), dataSubjects: ["产品使用者"], informationTypes: ["姓名和联系方式"], purposes: ["售后服务"],
+    collectionChannels: ["本人提供"], systems: ["售后工单系统"], recipients: ["不向外部提供"], approximatePersonCount: 10,
+    accessRoles: ["客服人员"], systemOperators: ["本单位系统管理员"], retentionPeriod: "永久保存", retentionBasis: "历史系统尚未设置清理规则",
+    deletionMethod: "目前没有统一删除机制", rightsChannel: "privacy@example.test", automatedDecision: "no", sensitiveInformation: "no",
+    minorsInvolved: "unknown", crossBorderAccess: "no"
+  });
+  const document = db.createDocument({
+    name: "风险现状台账", type: "processing_register", scope: "风险现状", audience: "内部合规档案", activityIds: [activity.id],
+    content: "这是一份如实记录当前风险事实并等待后续整改的内部处理活动台账完整内容。"
+  });
+  const draft = document.versions![0];
+  assert.throws(() => db.publishDocumentVersion(document.id, draft.id, { publishedBy: "负责人", publishChannel: "内部档案" }), /UNRESOLVED_RISKS_REQUIRE_DECISION/);
+  assert.throws(() => db.publishDocumentVersion(document.id, draft.id, { publishedBy: "负责人", publishChannel: "内部档案", riskDecisionNote: "负责人认为当前风险可以接受" }), /UNRESOLVED_RISKS_REQUIRE_DECISION/);
+
+  const archived = db.publishDocumentVersion(document.id, draft.id, {
+    publishedBy: "负责人", publishChannel: "内部整改台账", publicationMode: "risk_archive"
+  });
+  assert.equal(archived.status, "archived");
+  assert.equal(archived.publicationClassification, "current_state_risk_archive");
+  assert.match(archived.publicationRiskSummary, /保存期限/);
+  const refreshed = db.getDocument(document.id)!;
+  assert.equal(refreshed.currentVersion, null);
+  assert.equal(refreshed.healthStatus, "needs_review");
 });

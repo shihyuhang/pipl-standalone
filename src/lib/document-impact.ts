@@ -8,10 +8,13 @@ const factLabels: Record<keyof ActivityFacts, string> = {
   collectionChannels: "收集方式和来源",
   systems: "使用系统和保存位置",
   recipients: "外部服务商或接收方",
+  externalProcessingRelationships: "与外部单位的处理关系",
+  externalRecipientDetails: "外部单位、联系渠道和处理边界",
   approximatePersonCount: "涉及人数",
   accessRoles: "访问岗位",
   systemOperators: "系统运维方",
   retentionPeriod: "保存期限",
+  retentionBasis: "保存期限依据",
   deletionMethod: "删除方式",
   rightsChannel: "个人权利渠道",
   automatedDecision: "自动化决策",
@@ -31,10 +34,13 @@ const sectionMap: Partial<Record<keyof ActivityFacts, string[]>> = {
   collectionChannels: ["个人信息处理活动"],
   systems: ["个人信息处理活动", "保存和安全"],
   recipients: ["委托处理和向其他单位提供"],
+  externalProcessingRelationships: ["外部处理关系", "协议与影响评估"],
+  externalRecipientDetails: ["外部处理关系", "对外告知"],
   approximatePersonCount: ["个人信息处理活动", "影响评估"],
   accessRoles: ["内部权限管理"],
   systemOperators: ["委托处理和向其他单位提供"],
   retentionPeriod: ["保存和删除"],
+  retentionBasis: ["保存和删除"],
   deletionMethod: ["保存和删除"],
   rightsChannel: ["个人权利", "如何联系我们"],
   automatedDecision: ["自动化决策"],
@@ -63,13 +69,15 @@ export function describeActivityImpact(activityName: string, fields: Array<keyof
 }
 
 type EnterpriseImpactField = keyof Pick<EnterpriseProfile,
-  "legalName" | "privacyContactName" | "privacyContactRole" | "privacyContactChannel" | "sensitiveCategories" | "minorsPossible" | "crossBorder">;
+  "legalName" | "privacyContactName" | "privacyContactRole" | "privacyContactChannel" | "publicContactDepartment" | "publicContactChannel" | "sensitiveCategories" | "minorsPossible" | "crossBorder">;
 
 const enterpriseLabels: Record<EnterpriseImpactField, string> = {
   legalName: "单位名称",
   privacyContactName: "个人信息保护联系人",
   privacyContactRole: "联系人职务",
   privacyContactChannel: "联系渠道",
+  publicContactDepartment: "对外权利请求接收部门",
+  publicContactChannel: "对外权利请求渠道",
   sensitiveCategories: "敏感个人信息范围",
   minorsPossible: "未成年人情况",
   crossBorder: "境外处理情况"
@@ -80,6 +88,8 @@ const enterpriseSections: Record<EnterpriseImpactField, string[]> = {
   privacyContactName: ["如何联系我们", "个人权利"],
   privacyContactRole: ["如何联系我们", "个人权利"],
   privacyContactChannel: ["如何联系我们", "个人权利"],
+  publicContactDepartment: ["如何联系我们", "个人权利"],
+  publicContactChannel: ["如何联系我们", "个人权利"],
   sensitiveCategories: ["敏感个人信息"],
   minorsPossible: ["不满十四周岁未成年人"],
   crossBorder: ["向境外提供个人信息"]

@@ -11,7 +11,7 @@ export interface SystemTaskSnapshot {
   crossBorder: string;
   activityCount: number;
   externalNoticeCount: number;
-  activities: Array<{ id: string; name: string; remark?: string; completeness: number }>;
+  activities: Array<{ id: string; name: string; remark?: string; completeness: number; specialRiskCovered?: boolean; pipiaRequired?: boolean; pipiaComplete?: boolean; pipiaReasons?: string[] }>;
 }
 
 export interface SystemTaskRule {
@@ -25,6 +25,16 @@ export interface SystemTaskRule {
   evidenceNote: string;
   createWhenUnsatisfied: boolean;
   activityId?: string;
+}
+
+export function shouldCreateUnsatisfiedSystemTask(
+  rule: SystemTaskRule,
+  latestCompleted: { completionMode: string; completedAt: string | null } | null,
+  enterpriseUpdatedAt: string
+): boolean {
+  if (rule.satisfied || !rule.createWhenUnsatisfied) return false;
+  if (rule.code !== "HIGH-RISK-REVIEW") return true;
+  return !(latestCompleted?.completionMode === "manual" && latestCompleted.completedAt && latestCompleted.completedAt >= enterpriseUpdatedAt);
 }
 
 export function buildSystemTaskRules(snapshot: SystemTaskSnapshot): SystemTaskRule[] {
@@ -54,8 +64,8 @@ export function buildSystemTaskRules(snapshot: SystemTaskSnapshot): SystemTaskRu
     },
     {
       code: "HIGH-RISK-REVIEW", title: "完成高风险事项复核", description: "敏感信息、未成年人或境外访问事项需要负责人或专业人员确认。",
-      category: "适用判断", priority: "high", satisfied: !highRisk,
-      completionBasis: "企业档案当前未记录敏感信息、未成年人或境外访问事项。", evidenceNote: "系统记录：企业档案的专项风险字段", createWhenUnsatisfied: true
+      category: "适用判断", priority: "high", satisfied: !highRisk || snapshot.activities.some(activity => activity.specialRiskCovered),
+      completionBasis: snapshot.activities.some(activity => activity.specialRiskCovered) ? "具体业务已记录相应专项风险；后续由场景检查和影响评估任务承接，不再保留重复的总体复核事项。" : "企业档案当前未记录敏感信息、未成年人或境外访问事项。", evidenceNote: "系统记录：企业档案及具体业务", createWhenUnsatisfied: true
     },
     {
       code: "QUALIFICATION-OUT-OF-SCOPE", title: "转入一般个人信息处理者评估", description: "当前人数达到小型处理者范围之外，需要专业人员确认后续适用要求。",
@@ -64,9 +74,15 @@ export function buildSystemTaskRules(snapshot: SystemTaskSnapshot): SystemTaskRu
     }
   ];
   for (const activity of snapshot.activities) rules.push({
-    code: `COMPLETE-${activity.id}`, title: `完善“${activityDisplayName(activity)}”业务情况`, description: "确认涉及人员、信息字段、访问岗位、删除方式和个人权利渠道。",
+    code: `COMPLETE-${activity.id}`, title: `完善“${activityDisplayName(activity)}”业务情况`, description: "补齐这项业务仍未确认的必要事实；访问岗位和权限只按该场景的实际情况记录，不要求所有业务使用相同答案。",
     category: "我的业务", priority: "normal", satisfied: activity.completeness >= 1,
     completionBasis: `“${activityDisplayName(activity)}”的必要业务信息已全部确认。`, evidenceNote: `系统记录：我的业务 / ${activityDisplayName(activity)}`,
+    createWhenUnsatisfied: true, activityId: activity.id
+  });
+  for (const activity of snapshot.activities.filter(item => item.pipiaRequired)) rules.push({
+    code: `PIPIA-${activity.id}`, title: `完成“${activityDisplayName(activity)}”个人信息保护影响评估`, description: `该业务触发事前影响评估：${activity.pipiaReasons?.join("；") || "存在法定评估情形"}。完成并由负责人确认归档后，才能将相关材料发布为合规有效版本。`,
+    category: "影响评估", priority: "high", satisfied: Boolean(activity.pipiaComplete),
+    completionBasis: `“${activityDisplayName(activity)}”已有负责人确认归档的个人信息保护影响评估。`, evidenceNote: `系统记录：个人信息保护影响评估 / ${activityDisplayName(activity)}`,
     createWhenUnsatisfied: true, activityId: activity.id
   });
   return rules;

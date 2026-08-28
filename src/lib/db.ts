@@ -5,12 +5,13 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 import type { ActivityFacts, AssessmentFinding, AssessmentRun, AuditConclusion, AuditInstance, AuditResponse, AuditEvent, BusinessDocument, DashboardData, DocumentAttachment, DocumentChangeImpact, DocumentMetadata, DocumentVersion, EnterpriseProfile, FormStatus, ImpactAnswer, MaterialAiConfiguration, MaterialAiProvider, MaterialAiRuntimeConfiguration, MaterialAudienceGroup, PipiaCategoryCode, PipiaInstance, PipiaResponse, ProcessingActivity, TaskItem, YesNoNA } from "./types";
 import { activityFactsCompleteness, emptyActivityFacts, normalizeActivityFacts } from "./activity-facts.ts";
 import { auditItems, buildAuditSignals } from "./audit-template.ts";
-import { buildSystemTaskRules } from "./task-rules.ts";
+import { buildSystemTaskRules, shouldCreateUnsatisfiedSystemTask } from "./task-rules.ts";
 import { normalizeChinaLegalText, normalizeTriageFinding } from "./legal-language.ts";
 import { changedActivityFactFields, changedEnterpriseFields, describeActivityImpact, describeEnterpriseImpact } from "./document-impact.ts";
 import { inferMaterialAudienceGroup } from "./material-audience.ts";
 import { normalizeSensitiveCategoryCodes, sensitiveCategoryLabels } from "./sensitive-info.ts";
 import { activityDisplayName } from "./activity-label.ts";
+import { findDocumentPublicationRisks } from "./document-publication.ts";
 
 const databasePath = resolve(process.cwd(), process.env.PIPL_DATABASE_PATH || "./data/pipl-mvp.db");
 mkdirSync(dirname(databasePath), { recursive: true });
@@ -27,6 +28,7 @@ const schemaSql = `
     sensitive_categories TEXT NOT NULL DEFAULT '[]', minors_possible TEXT NOT NULL DEFAULT 'unknown',
     cross_border TEXT NOT NULL DEFAULT 'unknown', privacy_contact_name TEXT NOT NULL DEFAULT '',
     privacy_contact_role TEXT NOT NULL DEFAULT '', privacy_contact_channel TEXT NOT NULL DEFAULT '',
+    public_contact_department TEXT NOT NULL DEFAULT '', public_contact_channel TEXT NOT NULL DEFAULT '',
     qualification_status TEXT NOT NULL DEFAULT 'not_assessed', qualification_summary TEXT NOT NULL DEFAULT '',
     onboarding_completed INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
   );
@@ -54,7 +56,8 @@ const schemaSql = `
     facts_snapshot_json TEXT NOT NULL DEFAULT '{}', created_by TEXT NOT NULL DEFAULT '', submitted_at TEXT,
     reviewed_at TEXT, review_note TEXT NOT NULL DEFAULT '', approved_by TEXT NOT NULL DEFAULT '',
     approver_role TEXT NOT NULL DEFAULT '', approved_at TEXT, published_by TEXT NOT NULL DEFAULT '',
-    publish_channel TEXT NOT NULL DEFAULT '', publication_evidence TEXT NOT NULL DEFAULT ''
+    publish_channel TEXT NOT NULL DEFAULT '', publication_evidence TEXT NOT NULL DEFAULT '',
+    publication_classification TEXT NOT NULL DEFAULT '', publication_risk_summary TEXT NOT NULL DEFAULT ''
   );
   CREATE UNIQUE INDEX IF NOT EXISTS document_one_effective_idx ON document_version(document_id) WHERE status='effective';
   CREATE TABLE IF NOT EXISTS document_attachment (
@@ -135,6 +138,8 @@ function getDb(): DatabaseSync {
   ensureColumn(instance, "task", "source_type", "TEXT");
   ensureColumn(instance, "processing_activity", "remark", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(instance, "enterprise", "industry", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "enterprise", "public_contact_department", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "enterprise", "public_contact_channel", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(instance, "task", "source_id", "TEXT");
   ensureColumn(instance, "task", "activity_id", "TEXT");
   ensureColumn(instance, "task", "handling_note", "TEXT NOT NULL DEFAULT ''");
@@ -165,6 +170,8 @@ function getDb(): DatabaseSync {
   ensureColumn(instance, "document_version", "published_by", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(instance, "document_version", "publish_channel", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(instance, "document_version", "publication_evidence", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "document_version", "publication_classification", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "document_version", "publication_risk_summary", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(instance, "audit_instance", "context_snapshot_json", "TEXT NOT NULL DEFAULT '{}'");
   ensureColumn(instance, "pipia_instance", "context_snapshot_json", "TEXT NOT NULL DEFAULT '{}'");
   ensureColumn(instance, "pipia_response", "task_id", "TEXT");
@@ -301,6 +308,7 @@ export function getEnterprise(): EnterpriseProfile {
     sensitiveCategories: normalizeSensitiveCategoryCodes(parseArray(row.sensitive_categories)), minorsPossible: String(row.minors_possible) as EnterpriseProfile["minorsPossible"],
     crossBorder: String(row.cross_border) as EnterpriseProfile["crossBorder"], privacyContactName: String(row.privacy_contact_name),
     privacyContactRole: String(row.privacy_contact_role), privacyContactChannel: String(row.privacy_contact_channel),
+    publicContactDepartment: String(row.public_contact_department || "个人信息保护联系部门"), publicContactChannel: String(row.public_contact_channel || row.privacy_contact_channel || ""),
     qualificationStatus: String(row.qualification_status) as EnterpriseProfile["qualificationStatus"],
     qualificationSummary: String(row.qualification_summary), onboardingCompleted: Boolean(row.onboarding_completed),
     updatedAt: String(row.updated_at)
@@ -312,12 +320,13 @@ export function updateEnterprise(profile: Omit<EnterpriseProfile, "id" | "update
   const impactFields = changedEnterpriseFields(current, profile);
   getDb().prepare(`UPDATE enterprise SET legal_name=?, org_type=?, industry=?, business_model=?, ownership=?, processing_role=?,
     person_count=?, count_verified=?, subject_categories=?, sensitive_categories=?, minors_possible=?, cross_border=?,
-    privacy_contact_name=?, privacy_contact_role=?, privacy_contact_channel=?, qualification_status=?,
+    privacy_contact_name=?, privacy_contact_role=?, privacy_contact_channel=?, public_contact_department=?, public_contact_channel=?, qualification_status=?,
     qualification_summary=?, onboarding_completed=?, updated_at=? WHERE id=?`).run(
       profile.legalName, profile.orgType, profile.industry, profile.businessModel, profile.ownership, profile.processingRole,
       profile.personCount, profile.countVerified ? 1 : 0, JSON.stringify(profile.subjectCategories),
       JSON.stringify(profile.sensitiveCategories), profile.minorsPossible, profile.crossBorder,
       profile.privacyContactName, profile.privacyContactRole, profile.privacyContactChannel,
+      profile.publicContactDepartment || "", profile.publicContactChannel || "",
       profile.qualificationStatus, profile.qualificationSummary, profile.onboardingCompleted ? 1 : 0, now(), current.id
     );
   // 仅在修改前档案已完成建档时才生成"企业档案变更"影响；
@@ -347,9 +356,16 @@ export function upsertTask(input: { code: string; title: string; description: st
 function reconcileSystemTasks() {
   const db = getDb();
   const enterprise = getEnterprise();
+  const signedPipiaActivityIds = new Set((db.prepare("SELECT DISTINCT activity_id FROM pipia_instance WHERE status='signed'").all() as { activity_id: string }[]).map(item => item.activity_id));
   const activities = (db.prepare("SELECT * FROM processing_activity").all() as Record<string, unknown>[]).map(row => {
     const activity = mapActivity(row);
-    return { id: activity.id, name: activity.name, remark: activity.remark, completeness: activity.completeness };
+    const pipiaReasons: string[] = [];
+    if (activity.facts.sensitiveInformation === "yes") pipiaReasons.push("处理敏感个人信息");
+    if (activity.facts.automatedDecision === "yes") pipiaReasons.push("使用自动化决策");
+    if (activity.facts.recipients.some(item => item !== "不向外部提供")) pipiaReasons.push("存在委托处理、共同处理或向其他处理者提供");
+    if (activity.facts.crossBorderAccess === "yes") pipiaReasons.push("存在境外提供或访问");
+    const specialRiskCovered = activity.facts.sensitiveInformation === "yes" || activity.facts.sensitiveInformation === "unknown" || activity.facts.minorsInvolved !== "no" || activity.facts.crossBorderAccess !== "no";
+    return { id: activity.id, name: activity.name, remark: activity.remark, completeness: activity.completeness, specialRiskCovered, pipiaRequired: pipiaReasons.length > 0, pipiaComplete: signedPipiaActivityIds.has(activity.id), pipiaReasons };
   });
   const externalNoticeCount = Number((db.prepare(`SELECT COUNT(*) AS value FROM business_document d
     JOIN document_version v ON v.id=d.current_version_id AND v.document_id=d.id AND v.status='effective'
@@ -368,6 +384,18 @@ function reconcileSystemTasks() {
         .run(timestamp, timestamp, rule.completionBasis, rule.evidenceNote, rule.completionBasis, open.id);
       db.prepare("INSERT INTO audit_event VALUES (?, 'task.auto_completed', ?, ?)").run(randomUUID(), `系统自动完成办理事项：${rule.title}`, timestamp);
     } else if (!rule.satisfied && rule.createWhenUnsatisfied) {
+      const latestCompleted = db.prepare(`SELECT completion_mode, completed_at FROM task
+        WHERE code=? AND status='completed' ORDER BY completed_at DESC LIMIT 1`).get(rule.code) as { completion_mode: string; completed_at: string | null } | undefined;
+      if (!shouldCreateUnsatisfiedSystemTask(rule, latestCompleted ? { completionMode: latestCompleted.completion_mode, completedAt: latestCompleted.completed_at } : null, enterprise.updatedAt)) {
+        if (open) {
+          const basis = "同一批企业档案风险事实已经负责人完成人工复核；相关事实变化时系统将重新提示。";
+          db.prepare(`UPDATE task SET status='completed', completed_at=?, started_at=COALESCE(started_at, ?),
+            handling_note=?, evidence_note='系统记录：负责人已完成同批风险事实复核', responsible_name='系统自动核验', completion_mode='automatic', completion_basis=? WHERE id=?`)
+            .run(timestamp, timestamp, basis, basis, open.id);
+          db.prepare("INSERT INTO audit_event VALUES (?, 'task.auto_completed', ?, ?)").run(randomUUID(), `关闭重复生成的办理事项：${rule.title}`, timestamp);
+        }
+        continue;
+      }
       upsertTask({ code: rule.code, title: rule.title, description: rule.description, category: rule.category, priority: rule.priority, activityId: rule.activityId });
     }
   }
@@ -438,7 +466,7 @@ export function createActivity(input: { scenarioCode: string; name: string; rema
   const item = { id: randomUUID(), scenarioCode: input.scenarioCode, name: input.name, remark: input.remark?.trim() || "", description: input.description || "", status: "draft" as const, completeness: 0.15, facts: initialFacts, createdAt: now() };
   getDb().prepare("INSERT INTO processing_activity (id, scenario_code, name, remark, description, status, completeness, facts_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run(item.id, item.scenarioCode, item.name, item.remark, item.description, item.status, item.completeness, JSON.stringify(item.facts), item.createdAt);
-  upsertTask({ code: `COMPLETE-${item.id}`, title: `完善“${activityDisplayName(item)}”业务情况`, description: "确认涉及人员、信息字段、访问岗位、删除方式和个人权利渠道。", category: "我的业务" });
+  upsertTask({ code: `COMPLETE-${item.id}`, title: `完善“${activityDisplayName(item)}”业务情况`, description: "补齐这项业务仍未确认的必要事实；访问岗位和权限只按该场景的实际情况记录，不要求所有业务使用相同答案。", category: "我的业务" });
   addAuditEvent("activity.created", `新增业务场景：${activityDisplayName(item)}`);
   return item;
 }
@@ -607,11 +635,18 @@ export function updateDocumentDraft(documentId: string, versionId: string, input
   return getVersion(versionId)!;
 }
 
-export function publishDocumentVersion(documentId: string, versionId: string, input: { publishedBy: string; publishChannel: string; publicationEvidence?: string }): DocumentVersion {
+export function publishDocumentVersion(documentId: string, versionId: string, input: {
+  publishedBy: string;
+  publishChannel: string;
+  publicationEvidence?: string;
+  publicationMode?: "effective" | "risk_archive";
+  riskDecisionNote?: string;
+}): DocumentVersion {
   const version = getOwnedVersion(documentId, versionId);
   if (!["draft", "under_review", "approved"].includes(version.status)) throw new Error("VERSION_NOT_PUBLISHABLE");
   if (version.content.trim().length < 20) throw new Error("INCOMPLETE_DOCUMENT");
   const document = getDocument(documentId);
+  if (!document) throw new Error("DOCUMENT_NOT_FOUND");
   if (document?.type === "sensitive_consent") {
     const content = version.content;
     if (content.includes("待结合实际业务补充") || content.includes("待补充") || content.includes("待确认")) {
@@ -623,21 +658,43 @@ export function publishDocumentVersion(documentId: string, versionId: string, in
       throw new Error("CROSS_BORDER_RECIPIENT_INCOMPLETE");
     }
   }
+  const linkedActivities = listActivities().filter(activity => document.activityIds.includes(activity.id));
+  const signedPipiaActivityIds = (getDb().prepare("SELECT DISTINCT activity_id FROM pipia_instance WHERE status='signed'").all() as { activity_id: string }[]).map(item => item.activity_id);
+  const effectiveMinorRuleActivityIds = (getDb().prepare(`SELECT d.activity_ids_json FROM business_document d JOIN document_version v ON v.id=d.current_version_id AND v.status='effective' WHERE d.type='minor_notice'`).all() as { activity_ids_json: string }[]).flatMap(item => parseArray(item.activity_ids_json));
+  const unresolvedAssessmentFindings = linkedActivities.flatMap(activity => (getDb().prepare(`SELECT title FROM task WHERE activity_id=? AND status!='completed' AND priority='high' AND (source_type='assessment_finding' OR category='影响评估')`).all(activity.id) as { title: string }[]).map(item => `发布前待办未完成：${item.title}`));
+  const publicationRisks = findDocumentPublicationRisks(document, linkedActivities, unresolvedAssessmentFindings, { content: version.content, signedPipiaActivityIds, effectiveMinorRuleActivityIds, enterprise: getEnterprise() });
+  const publicationMode = input.publicationMode || "effective";
+  const riskDecisionNote = input.riskDecisionNote?.trim() || "";
+  if (publicationMode === "effective" && publicationRisks.length > 0) {
+    throw new Error("UNRESOLVED_RISKS_REQUIRE_DECISION");
+  }
+
   const db = getDb(); const timestamp = now();
   db.exec("BEGIN");
   try {
-    db.prepare("UPDATE document_version SET status='superseded' WHERE document_id=? AND status='effective'").run(documentId);
-    const result = db.prepare(`UPDATE document_version SET status='effective', published_at=?, published_by=?,
-      publish_channel=?, publication_evidence=? WHERE id=? AND document_id=? AND status IN ('draft','under_review','approved')`)
-      .run(timestamp, input.publishedBy, input.publishChannel, input.publicationEvidence || "", versionId, documentId);
+    if (publicationMode === "effective") db.prepare("UPDATE document_version SET status='superseded' WHERE document_id=? AND status='effective'").run(documentId);
+    const nextStatus = publicationMode === "risk_archive" ? "archived" : "effective";
+    const classification = publicationMode === "risk_archive" ? "current_state_risk_archive" : "compliance_effective";
+    const riskSummary = publicationRisks.length > 0
+      ? `${publicationRisks.join("；")}${riskDecisionNote ? `。负责人说明：${riskDecisionNote}` : ""}`
+      : riskDecisionNote;
+    const result = db.prepare(`UPDATE document_version SET status=?, published_at=?, published_by=?,
+      publish_channel=?, publication_evidence=?, publication_classification=?, publication_risk_summary=?
+      WHERE id=? AND document_id=? AND status IN ('draft','under_review','approved')`)
+      .run(nextStatus, timestamp, input.publishedBy, input.publishChannel, input.publicationEvidence || "", classification, riskSummary, versionId, documentId);
     if (Number(result.changes) !== 1) throw new Error("PUBLISH_FAILED");
-    db.prepare("UPDATE business_document SET current_version_id=?, health_status='current', review_reason='', review_due_at=NULL, updated_at=? WHERE id=?")
-      .run(versionId, timestamp, documentId);
-    db.prepare(`UPDATE document_change_impact SET status='resolved', resolution_note=?, resolved_at=?
-      WHERE document_id=? AND status IN ('open','draft_created','deferred')`).run(`已通过 ${version.versionNumber} 完成修订并发布。`, timestamp, documentId);
+    if (publicationMode === "risk_archive") {
+      db.prepare("UPDATE business_document SET health_status='needs_review', review_reason=?, review_due_at=NULL, updated_at=? WHERE id=?")
+        .run(`已归档现状，但仍有 ${publicationRisks.length} 项风险或待确认事项。`, timestamp, documentId);
+    } else {
+      db.prepare("UPDATE business_document SET current_version_id=?, health_status='current', review_reason='', review_due_at=NULL, updated_at=? WHERE id=?")
+        .run(versionId, timestamp, documentId);
+      db.prepare(`UPDATE document_change_impact SET status='resolved', resolution_note=?, resolved_at=?
+        WHERE document_id=? AND status IN ('open','draft_created','deferred')`).run(`已通过 ${version.versionNumber} 完成修订并发布。`, timestamp, documentId);
+    }
     db.exec("COMMIT");
   } catch (error) { db.exec("ROLLBACK"); throw error; }
-  addAuditEvent("document.published", `发布材料版本：${version.versionNumber}`);
+  addAuditEvent(publicationMode === "risk_archive" ? "document.risk_archived" : "document.published", publicationMode === "risk_archive" ? `归档含整改项的现状版本：${version.versionNumber}` : `发布合规有效版本：${version.versionNumber}`);
   return getVersion(versionId)!;
 }
 
@@ -660,6 +717,8 @@ function mapVersion(row: Record<string, unknown>): DocumentVersion {
     reviewNote: String(row.review_note || ""), approvedBy: String(row.approved_by || ""), approverRole: String(row.approver_role || ""),
     approvedAt: row.approved_at ? String(row.approved_at) : null, publishedBy: String(row.published_by || ""),
     publishChannel: String(row.publish_channel || ""), publicationEvidence: String(row.publication_evidence || ""),
+    publicationClassification: String(row.publication_classification || "") as DocumentVersion["publicationClassification"],
+    publicationRiskSummary: String(row.publication_risk_summary || ""),
     publishedAt: row.published_at ? String(row.published_at) : null
   };
 }

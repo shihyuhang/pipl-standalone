@@ -6,10 +6,11 @@ import { AlertTriangle, Check, CheckCircle2, Circle, Clock3, ExternalLink, FileC
 import type { DashboardData, TaskItem } from "@/lib/types";
 
 function sourceLink(task: TaskItem): { href: string; label: string } | null {
+  if (task.code === "HIGH-RISK-REVIEW") return { href: "/business", label: "前往相关业务逐项核对" };
   if (task.sourceType === "audit_response" || task.category === "合规自查") return { href: "/self-audit", label: "前往合规检查补充" };
-  if (task.sourceType === "pipia_response" || task.category === "影响评估") return { href: "/impact-assessments", label: "前往影响评估补充" };
-  if (task.sourceType === "assessment_finding" || task.category === "初步检查") return { href: "/business", label: "修改相关业务情况" };
-  if (task.activityId || task.category === "我的业务") return { href: "/business", label: "前往我的业务补充" };
+  if (task.sourceType === "pipia_response" || task.category === "影响评估") return { href: task.activityId ? `/impact-assessments?activity=${task.activityId}` : "/impact-assessments", label: "前往影响评估补充" };
+  if (task.sourceType === "assessment_finding" || task.category === "初步检查") return { href: task.activityId ? `/business?activity=${task.activityId}&step=3` : "/business", label: "修改相关业务情况" };
+  if (task.activityId || task.category === "我的业务") return { href: task.activityId ? `/business?activity=${task.activityId}` : "/business", label: "前往对应业务补充" };
   if (task.category === "适用判断") return { href: "/onboarding", label: "前往企业档案补充" };
   if (task.category === "合规材料") return { href: "/documents", label: "前往合规材料补充" };
   return null;
@@ -18,7 +19,7 @@ function sourceLink(task: TaskItem): { href: string; label: string } | null {
 function completesFromSource(task: TaskItem): boolean {
   return task.code === "ADD-FIRST-SCENARIO" || task.code === "CREATE-FIRST-NOTICE" ||
     task.code === "VERIFY-PERSON-COUNT" || task.code === "VERIFY-PROCESSING-ROLE" ||
-    task.code === "QUALIFICATION-OUT-OF-SCOPE" || task.code.startsWith("COMPLETE-");
+    task.code === "QUALIFICATION-OUT-OF-SCOPE" || task.code.startsWith("COMPLETE-") || task.code.startsWith("PIPIA-");
 }
 
 function completionText(task: TaskItem): string {
@@ -28,6 +29,7 @@ function completionText(task: TaskItem): string {
   if (task.code === "VERIFY-PROCESSING-ROLE") return "在企业档案确认处理角色后，系统自动完成";
   if (task.code === "QUALIFICATION-OUT-OF-SCOPE") return "更新人数后由系统重新判断，超出范围时转专业人员";
   if (task.code.startsWith("COMPLETE-")) return "业务必要信息达到完整状态后，系统自动完成";
+  if (task.code.startsWith("PIPIA-")) return "完成影响评估全部判断并由负责人确认归档后，系统自动完成";
   return taskFormConfig(task).completionCondition;
 }
 
@@ -45,6 +47,17 @@ type TaskFormConfig = {
 
 function taskFormConfig(task: TaskItem): TaskFormConfig {
   const text = `${task.title} ${task.description}`;
+  if (task.code === "HIGH-RISK-REVIEW") return {
+    guide: "分别核对当前实际涉及的敏感个人信息、不满十四周岁未成年人和境外存储或访问情况；记录触发业务、具体信息、处理目的及负责人结论。企业档案只能记录总体提示，具体事实应在“我的业务”中逐项确认。",
+    resultLabel: "专项复核结论",
+    resultPlaceholder: "例如：员工管理涉及体检报告和工资卡号，已确认处理目的、必要性、访问范围和保护措施；家庭日活动可能涉及员工子女，活动开展前补充监护人告知同意；当前没有境外存储或访问。",
+    resultHelp: "不要只写“已复核”，应分别说明哪些业务触发、核对了什么以及是否仍需整改或评估。",
+    evidenceLabel: "相关业务记录、评估或证明材料位置",
+    evidencePlaceholder: "例如：员工管理业务记录、敏感个人信息单独同意、影响评估、系统配置截图。",
+    confirmationTitle: "我已按具体业务逐项核对高风险事实并记录结论",
+    confirmationHelp: "完成后该事项不会因同一批企业档案事实立即重新置顶；相关风险事实变化时系统会再次提示。",
+    completionCondition: "逐项确认敏感个人信息、未成年人和境外处理事实，并记录结论及依据"
+  };
   if (/涉及人数|人数口径/.test(text)) return {
     guide: "写明统计日期、覆盖哪些人员、是否去重，以及最终确认的人数或估算范围。",
     resultLabel: "人数统计结果",
@@ -78,8 +91,8 @@ function taskFormConfig(task: TaskItem): TaskFormConfig {
     confirmationHelp: "个人可以实际联系到企业，而不是仅在文本中保留一个无效入口。",
     completionCondition: "明确请求渠道、受理人、办理和答复方式"
   };
-  if (/岗位|权限|访问/.test(text)) return {
-    guide: "列出可以查看或导出信息的岗位，并说明授权、离职关停和定期检查方式。",
+  if (/访问岗位|操作权限|权限控制|账号权限|未经授权的?访问|查看或导出|查阅、复制、传输/.test(text.replace(/境外访问/g, ""))) return {
+    guide: "这项要求应对应到产生该待办的具体业务或检查发现，并非要求所有场景填写相同答案。请列出该业务中实际可以查看或导出信息的岗位，并说明授权、离职关停和定期检查方式。《个人信息保护法》第五十一条第（四）项要求合理确定个人信息处理的操作权限。",
     resultLabel: "可访问岗位和权限控制结果",
     resultPlaceholder: "例如：CRM仅销售经理和客户服务岗位可查看，导出权限仅限部门负责人；员工离职当日由管理员关闭账号，每季度复核一次权限。",
     resultHelp: "说明哪些岗位可以查看、修改或导出，以及权限开通、关闭和复核方式。",
@@ -127,9 +140,21 @@ export default function TasksPage() {
   const load = async (selectedId?: string) => {
     const next = await fetch("/api/dashboard", { cache: "no-store" }).then(response => response.json()) as DashboardData;
     setData(next);
-    if (selectedId) setSelected(next.tasks.find(task => task.id === selectedId) || null);
+    if (selectedId) {
+      const task = next.tasks.find(item => item.id === selectedId) || null;
+      setSelected(task);
+      if (task) {
+        setHandlingNote(task.handlingNote);
+        setEvidenceNote(task.evidenceNote);
+        setResponsibleName(task.responsibleName || next.enterprise.privacyContactName || "");
+        setConfirmed(task.status === "completed");
+      }
+    }
   };
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    const selectedId = new URLSearchParams(window.location.search).get("task") || undefined;
+    void load(selectedId);
+  }, []);
 
   const openTask = (task: TaskItem) => {
     setSelected(task);

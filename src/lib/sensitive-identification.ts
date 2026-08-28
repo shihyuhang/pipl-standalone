@@ -43,7 +43,7 @@ export interface SensitiveIdentificationResult {
 type RawAiCandidate = Record<string, unknown>;
 type AiResponse = { candidates?: unknown; questions?: unknown; boundary_observations?: unknown };
 
-const promptVersion = "sensitive-identification-v1";
+const promptVersion = "sensitive-identification-v2-employee-guidance";
 const confidenceRank: Record<SensitiveConfidence, number> = { low: 1, medium: 2, high: 3 };
 
 const ruleDefinitions: Array<{
@@ -54,11 +54,11 @@ const ruleDefinitions: Array<{
 }> = [
   { category: "biometric", pattern: /人脸识别|人脸比对|刷脸|指纹|掌纹|虹膜|声纹|步态识别|基因/, reasoning: "描述中出现了用于识别身份的生物特征或识别方式。", question: "这些特征是否会经过技术处理，用于识别或验证个人身份？" },
   { category: "religious_belief", pattern: /宗教信仰|宗教组织|宗教活动|宗教习俗|教派/, reasoning: "描述中出现了宗教信仰、组织、活动或习俗信息。", question: "是否会记录具体宗教信仰、所属宗教组织或参加的宗教活动？" },
-  { category: "specific_identity", pattern: /残障|残疾|特殊职业身份|不适宜公开的职业|特定身份/, reasoning: "描述中出现了可能不适宜公开的特定身份信息。", question: "该身份泄露后是否容易造成歧视、人格尊严受损或人身安全风险？" },
-  { category: "medical_health", pattern: /病症|病史|诊断|体检报告|体检结果|病假证明|就诊|检验报告|检查报告|生育信息|医疗记录|健康档案/, reasoning: "描述中出现了疾病、就诊、检查或健康状况资料。", question: "是否保存具体病症、检查结果或医疗记录，而不只是一般状态结论？" },
-  { category: "financial_account", pattern: /银行账户|银行账号|银行卡号|工资卡|支付账号|证券账户|基金账户|保险账户|公积金账户|账户鉴别信息|支付密码|收入明细/, reasoning: "描述中出现了金融账户、账户鉴别信息或个人收入明细。", question: "是否保存具体账户号码、鉴别信息或可反映个人财务状况的明细？" },
+  { category: "specific_identity", pattern: /残障|残疾|残疾证明|特殊职业身份|不适宜公开的职业|特定身份/, reasoning: "描述中出现了可能不适宜公开的特定身份信息。", question: "请确认是否保存残疾证明或其他可直接反映特定身份的资料，以及泄露后是否容易造成歧视、人格尊严受损或人身安全风险。" },
+  { category: "medical_health", pattern: /病症|病史|诊断|体检报告|体检结果|职业健康检查|病假证明|就诊|检验报告|检查报告|生育信息|工伤认定|医疗报销|保险理赔|医疗记录|健康档案/, reasoning: "描述中出现了疾病、体检、就诊、工伤、生育、医疗报销或保险理赔资料。", question: "请区分：是否仅记录“已体检/适岗”等状态，还是保存体检报告、病症诊断、检查结果、病假就医证明、工伤或生育资料的具体内容？保存后者时应纳入医疗健康信息候选并复核。" },
+  { category: "financial_account", pattern: /银行账户|银行账号|银行卡号|工资卡|工资明细|工资单|薪酬明细|薪资明细|支付账号|证券账户|基金账户|保险账户|公积金账户|账户鉴别信息|支付密码|收入明细/, reasoning: "描述中出现了金融账户、账户鉴别信息或个人收入明细。", question: "请确认是否保存工资卡或其他账户号码、账户鉴别信息，或者可反映个人收入状况的工资和薪酬明细，而不只是工资发放是否完成。" },
   { category: "location_trajectory", pattern: /精准定位|精确位置|实时位置|连续定位|GPS|行踪轨迹|活动轨迹|车辆轨迹|定位权限/, reasoning: "描述中出现了精准位置、连续定位或活动轨迹。", question: "位置精度和采集频率是否足以定位个人，或形成连续活动轨迹？" },
-  { category: "other_sensitive", pattern: /身份证照片|身份证正反面|证件影像|征信|信用报告|犯罪记录|性取向|性生活|私密部位/, reasoning: "描述中出现了标准列明或可能符合危害后果标准的其他敏感信息。", question: "是否实际保存这些资料的内容或影像，而不只是完成一次核验？" }
+  { category: "other_sensitive", pattern: /身份证照片|身份证正反面|身份证复印件|证件影像|征信|信用报告|犯罪记录|性取向|性生活|私密部位/, reasoning: "描述中出现了标准列明或可能符合危害后果标准的其他敏感信息。", question: "请确认是否实际留存身份证件影像、征信或其他资料内容，而不只是现场核验后记录核验结果。" }
 ];
 
 const textList = (value: unknown, maxItems = 30, maxLength = 100): string[] => Array.isArray(value)
@@ -143,6 +143,15 @@ export function runSensitiveIdentificationRules(input: SensitiveIdentificationIn
   const questions = input.minorsInvolved === "yes"
     ? ["本业务涉及不满十四周岁未成年人，其个人信息依法属于敏感个人信息；请确认监护人同意和专门处理规则。"]
     : [];
+  if (input.scenarioCode === "SCN-HR-EMPLOYEE" || /员工管理|人力资源/.test(input.scenarioName)) {
+    questions.push(
+      "入职档案是否留存身份证件照片或复印件，而不只是核验身份？",
+      "薪酬发放是否留存工资卡等金融账户号码、账户鉴别信息或个人工资明细？",
+      "体检、病假、工伤、生育、医疗报销或商业保险办理中，是否留存诊断、检查结果或证明内容？",
+      "考勤或门禁是否使用人脸、指纹等特征进行身份识别或验证？",
+      "员工福利、家属商业保险、家庭日或亲子活动中，是否会处理员工子女信息，尤其是不满十四周岁未成年人的信息？"
+    );
+  }
   return { candidates, questions, boundaryObservations };
 }
 
@@ -199,6 +208,7 @@ function sensitiveSystemPrompt(): string {
 3. 不满十四周岁未成年人的个人信息依法属于敏感个人信息；
 4. 不得仅凭“照片、订单、地址、身份证号”等名称机械认定，应结合处理方式、精度、频率、用途和危害后果；
 5. 信息不足时降低置信度并提出一个普通用户能回答的具体问题。
+6. 员工管理场景不得只按“薪酬和考勤”作笼统判断，应逐项追问身份证件影像、工资卡或收入明细、体检与病假/工伤/生育/理赔资料、人脸或指纹考勤，以及员工福利中可能涉及的子女信息。
 
 只允许使用以下 category 值：
 ${categories}

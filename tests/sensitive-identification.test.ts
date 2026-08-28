@@ -25,6 +25,16 @@ test("基础规则从具体字段和处理方式识别候选类别", () => {
   assert.deepEqual(result.candidates.map(item => item.category), ["biometric", "medical_health", "financial_account"]);
   assert.ok(result.boundaryObservations.some(item => /普通照片/.test(item)));
   assert.ok(result.boundaryObservations.some(item => /普通地址或粗略地区/.test(item)));
+  assert.ok(result.questions.some(item => /家属商业保险|家庭日/.test(item)));
+  assert.ok(result.questions.some(item => /工资卡/.test(item)));
+});
+
+test("员工体检、工伤和薪酬明细使用可执行的确认问题", () => {
+  const result = runSensitiveIdentificationRules({ ...input, informationDetails: "职业健康检查、工伤认定资料、工资明细" });
+  const health = result.candidates.find(item => item.category === "medical_health");
+  const finance = result.candidates.find(item => item.category === "financial_account");
+  assert.match(health?.question || "", /体检报告|病症诊断/);
+  assert.match(finance?.question || "", /工资卡|账户号码/);
 });
 
 test("发送AI前遮蔽疑似真实个人信息值", () => {

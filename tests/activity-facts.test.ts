@@ -80,3 +80,26 @@ test("不满十四周岁个人信息自动归入敏感个人信息路径", () =>
   assert.equal(normalized.sensitiveInformation, "yes");
   assert.deepEqual(normalized.sensitiveCategories, []);
 });
+
+test("选择其他信息后必须补充具体类型才能完成", () => {
+  const base = {
+    ...emptyActivityFacts(),
+    dataSubjects: ["员工"], informationTypes: ["姓名和联系方式", "其他信息"], purposes: ["员工管理"],
+    collectionChannels: ["本人主动提供"], systems: ["HR系统"], recipients: ["不向外部提供"], approximatePersonCount: 30,
+    accessRoles: ["人力资源岗位"], systemOperators: ["本单位系统管理员"], retentionPeriod: "在职期间", deletionMethod: "离职后删除",
+    rightsChannel: "hr@example.test", automatedDecision: "no" as const, sensitiveInformation: "no" as const, minorsInvolved: "no" as const, crossBorderAccess: "no" as const
+  };
+  assert.equal(isActivityReadyForTriage(base), false);
+  assert.equal(isActivityReadyForTriage({ ...base, informationTypes: [...base.informationTypes, "职业资格证书"] }), true);
+});
+
+test("永久保存未说明依据时不能进入快速检查", () => {
+  const base = {
+    ...emptyActivityFacts(), dataSubjects: ["客户联系人"], informationTypes: ["姓名和联系方式"], purposes: ["合同沟通"],
+    collectionChannels: ["本人主动提供"], systems: ["CRM"], recipients: ["不向外部提供"], approximatePersonCount: 20,
+    accessRoles: ["业务经办人员"], systemOperators: ["本单位系统管理员"], retentionPeriod: "永久", deletionMethod: "不删除",
+    rightsChannel: "privacy@example.test", automatedDecision: "no" as const, sensitiveInformation: "no" as const, minorsInvolved: "no" as const, crossBorderAccess: "no" as const
+  };
+  assert.equal(isActivityReadyForTriage(base), false);
+  assert.equal(isActivityReadyForTriage({ ...base, retentionBasis: "法定留存要求待负责人核对" }), true);
+});

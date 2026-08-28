@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { normalizeChinaLegalText, normalizeTriageFinding } from "./legal-language.ts";
 import { sensitiveCategoryDefinitions } from "./sensitive-info.ts";
+import { assessRetentionRisk } from "./retention-risk.ts";
 
 export interface TriageContext {
   enterprise: Record<string, unknown>;
@@ -25,9 +26,55 @@ export function stabilizeTriageStatus(
   deterministicReviewRequired = false
 ): TriageResult["status"] {
   if (deterministicReviewRequired || findings.some(item => item.riskLevel === "L3")) return "needs_review";
+  if (findings.some(item => item.riskLevel === "L2")) return "needs_input";
   if (status === "needs_review") return findings.some(item => item.riskLevel === "L2") ? "needs_input" : "draft_ready";
   if (status === "needs_input" && findings.length > 0 && findings.every(item => item.riskLevel === "L0" || item.riskLevel === "L1")) return "draft_ready";
   return status;
+}
+
+type TriageFinding = TriageResult["findings"][number];
+const riskWeight: Record<TriageFinding["riskLevel"], number> = { L0: 0, L1: 1, L2: 2, L3: 3 };
+
+function findingTheme(finding: TriageFinding): string {
+  const text = `${finding.title} ${finding.description}`;
+  if (/保存期限|永久保存|长期保存|删除机制|到期删除|留存/.test(text)) return "retention";
+  if (/敏感个人信息|医疗健康|生物识别|金融账户|特定身份|行踪轨迹/.test(text)) return "sensitive";
+  if (/未成年人|不满十四周岁/.test(text)) return "minors";
+  if (/境外|跨境/.test(text)) return "cross_border";
+  if (/自动化决策|自动决定/.test(text)) return "automated_decision";
+  if (/访问岗位|权限控制|访问控制|最小权限|账号权限/.test(text)) return "access_control";
+  if (/外部接收方|委托处理|服务商|向其他处理者提供|共同处理/.test(text)) return "recipient";
+  if (/处理目的|合法性|必要性/.test(text)) return "lawful_purpose";
+  return `title:${finding.title.trim()}`;
+}
+
+const mergedThemeTitles: Record<string, string> = {
+  retention: "完善保存期限与删除机制",
+  sensitive: "复核敏感个人信息处理",
+  minors: "复核未成年人个人信息处理",
+  cross_border: "确认个人信息出境安排",
+  automated_decision: "复核自动化决策安排",
+  access_control: "完善访问岗位与权限控制",
+  recipient: "确认外部接收方与委托处理安排",
+  lawful_purpose: "复核处理目的与必要性"
+};
+
+export function mergeTriageFindings(findings: TriageFinding[]): TriageFinding[] {
+  const groups = new Map<string, TriageFinding[]>();
+  for (const finding of findings) {
+    const key = findingTheme(finding);
+    groups.set(key, [...(groups.get(key) || []), finding]);
+  }
+  return [...groups.entries()].map(([theme, items]) => {
+    if (items.length === 1) return items[0];
+    const descriptions = [...new Set(items.map(item => item.description.trim()).filter(Boolean))];
+    const riskLevel = items.reduce((highest, item) => riskWeight[item.riskLevel] > riskWeight[highest] ? item.riskLevel : highest, items[0].riskLevel);
+    return {
+      title: mergedThemeTitles[theme] || items[0].title,
+      description: descriptions.map((description, index) => `${index + 1}. ${description}`).join(" "),
+      riskLevel
+    };
+  });
 }
 
 const aiLabels: Record<string, string> = {
@@ -45,7 +92,7 @@ const aiLabels: Record<string, string> = {
 };
 
 export function buildAiEnterpriseContext(input: Record<string, unknown>): Record<string, unknown> {
-  const label = (value: unknown) => aiLabels[String(value)] || value;
+  const label = (value: unknown) => String(value).startsWith("other:") ? String(value).slice(6) : aiLabels[String(value)] || value;
   const labels = (value: unknown) => Array.isArray(value) ? value.map(label) : value;
   return {
     ...input,
@@ -132,7 +179,7 @@ function humanizeFindingText(input: unknown): string {
     ["informationTypes", "使用的个人信息"], ["informationDetails", "具体字段或资料名称"], ["purposes", "使用目的"], ["dataSubjects", "涉及人员"],
     ["subjectCategories", "企业档案中的人员类别"], ["sensitiveInformation", "是否涉及敏感个人信息"],
     ["minorsInvolved", "是否涉及不满十四周岁未成年人"], ["crossBorderAccess", "境外存储或访问"],
-    ["recipients", "外部接收方"], ["retentionPeriod", "保存期限"], ["systems", "使用的系统"],
+    ["recipients", "外部接收方"], ["retentionPeriod", "保存期限"], ["retentionBasis", "保存期限依据"], ["systems", "使用的系统"],
     ["approximatePersonCount", "这项业务大约涉及的人数"], ["accessRoles", "可访问岗位"],
     ["systemOperators", "系统运维方"], ["deletionMethod", "到期删除方式"],
     ["rightsChannel", "个人权利渠道"], ["automatedDecision", "是否使用自动化决策"],
@@ -167,11 +214,18 @@ export function runLocalScenarioTriage(context: TriageContext, warning: string):
   if (facts.automatedDecision === "yes") findings.push({ title: "复核自动化决策安排", description: "请确认自动化决策的用途、对个人的影响、告知方式和拒绝渠道，并判断是否需要专项评估。", riskLevel: "L3" });
   else if (facts.automatedDecision === "unknown") findings.push({ title: "确认是否使用自动化决策", description: "请确认系统是否会自动决定推荐、价格、资格或其他对个人有影响的结果。", riskLevel: "L2" });
   if (Array.isArray(facts.recipients) && facts.recipients.includes("暂不清楚")) findings.push({ title: "确认外部接收方", description: "需要确认是否有云服务商、集团公司、客户或合作方接收这些信息。", riskLevel: "L2" });
+  const retention = assessRetentionRisk(String(facts.retentionPeriod || ""), String(facts.retentionBasis || ""));
+  if (retention.level !== "none") findings.push({
+    title: retention.title,
+    description: `${retention.message}《个人信息保护法》第十九条要求，除法律、行政法规另有规定外，保存期限应为实现处理目的所必要的最短时间。当前不能仅凭填写内容认定违法，但应补充依据并由负责人复核。`,
+    riskLevel: "L2"
+  });
+  const mergedFindings = mergeTriageFindings(findings);
   return {
     source: "local_rules",
-    status: findings.some(f => f.riskLevel === "L3") ? "needs_review" : findings.length ? "needs_input" : "draft_ready",
-    summary: findings.length ? `基础规则发现 ${findings.length} 项需要确认的情况。` : "已完成基础规则检查，尚未运行AI快速分流。",
-    reviewRequired: findings.some(f => f.riskLevel === "L3"), findings,
+    status: mergedFindings.some(f => f.riskLevel === "L3") ? "needs_review" : mergedFindings.length ? "needs_input" : "draft_ready",
+    summary: mergedFindings.length ? `基础规则发现 ${mergedFindings.length} 个需要确认的整改主题。` : "已完成基础规则检查，尚未运行AI快速分流。",
+    reviewRequired: mergedFindings.some(f => f.riskLevel === "L3"), findings: mergedFindings,
     warnings: warning ? [warning] : [],
     workflowVersion: "scenario-triage-local-rules-v1"
   };
@@ -194,17 +248,21 @@ export function normalizeAiTriageResult(
     return { ...normalized, riskLevel: (["L0", "L1", "L2", "L3"].includes(String(finding.risk_level)) ? finding.risk_level : "L2") as "L0" | "L1" | "L2" | "L3" };
   }) : [];
   const deterministic = runLocalScenarioTriage(context, "");
-  for (const required of deterministic.findings.filter(item => item.riskLevel === "L3")) {
-    if (!findings.some(item => item.title === required.title)) findings.push(required);
+  for (const required of deterministic.findings.filter(item => item.riskLevel === "L3" || item.title.includes("保存期限"))) {
+    if (!findings.some(item => item.title === required.title || (item.title.includes("保存期限") && required.title.includes("保存期限")))) findings.push(required);
   }
-  const hasL3 = findings.some(item => item.riskLevel === "L3") || deterministic.reviewRequired;
+  const unmergedCount = findings.length;
+  const mergedFindings = mergeTriageFindings(findings);
+  const hasL3 = mergedFindings.some(item => item.riskLevel === "L3") || deterministic.reviewRequired;
   const modelStatus = (["draft_ready", "needs_review", "needs_input"].includes(String(value.status)) ? value.status : "needs_review") as TriageResult["status"];
-  const status = stabilizeTriageStatus(modelStatus, findings, deterministic.reviewRequired);
+  const status = stabilizeTriageStatus(modelStatus, mergedFindings, deterministic.reviewRequired);
   const modelSummary = humanizeFindingText(value.summary || "系统已完成初步检查，等待负责人确认。");
-  const summary = modelStatus !== "draft_ready" && status === "draft_ready"
+  const summary = unmergedCount > mergedFindings.length
+    ? `系统已将相近问题合并为 ${mergedFindings.length} 个整改主题，请按主题逐项确认。`
+    : modelStatus !== "draft_ready" && status === "draft_ready"
     ? "暂未发现需要暂停的事项，可以继续完善普通业务信息。"
     : modelSummary;
-  return { source, status, summary, reviewRequired: hasL3, findings, warnings, remoteRunId, workflowVersion };
+  return { source, status, summary, reviewRequired: hasL3, findings: mergedFindings, warnings, remoteRunId, workflowVersion };
 }
 
 export async function runDifyScenarioTriage(context: TriageContext): Promise<TriageResult> {

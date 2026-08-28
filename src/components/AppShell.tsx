@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Archive, Bot, Building2, ClipboardCheck, FileText, Home, Menu, ShieldCheck, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const navigation = [
   { href: "/", label: "首页", icon: Home },
@@ -18,6 +18,15 @@ const navigation = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [onboardingCompleted, setOnboardingCompleted] = useState<boolean | null>(null);
+  useEffect(() => {
+    const closeOnViewportChange = () => setOpen(false);
+    window.addEventListener("resize", closeOnViewportChange);
+    return () => window.removeEventListener("resize", closeOnViewportChange);
+  }, []);
+  useEffect(() => {
+    void fetch("/api/enterprise", { cache: "no-store" }).then(response => response.ok ? response.json() : null).then(data => setOnboardingCompleted(Boolean(data?.onboardingCompleted))).catch(() => setOnboardingCompleted(null));
+  }, [pathname]);
   const onboarding = pathname === "/onboarding";
   if (onboarding) return <main className="onboarding-shell">{children}</main>;
 
@@ -27,7 +36,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="brand"><div className="brand-mark"><ShieldCheck size={23} /></div><div><strong>个保轻舟</strong><span>小型处理者数据合规专用工作台</span></div></div>
         <button className="mobile-close" onClick={() => setOpen(false)} aria-label="关闭菜单"><X /></button>
         <nav>
-          {navigation.map(item => {
+          {navigation.filter(item => onboardingCompleted !== false || item.href === "/").map(item => {
             const active = item.href === "/"
               ? pathname === "/"
               : pathname.startsWith(item.href) || item.related?.some(path => pathname.startsWith(path));

@@ -11,9 +11,10 @@ const schema = z.object({
   legalName: z.string().min(2).max(200), orgType: z.string().min(1), industry: z.string().trim().min(2).max(100),
   businessModel: z.enum(["B2B", "B2C", "both", "internal_only"]), ownership: z.string().min(1),
   processingRole: z.string().min(1), personCount: z.number().int().nonnegative().nullable(), countVerified: z.boolean(),
-  subjectCategories: z.array(z.string()), sensitiveCategories: z.array(z.enum(sensitiveCategoryCodes)),
+  subjectCategories: z.array(z.string().trim().min(1).max(306)).max(20), sensitiveCategories: z.array(z.enum(sensitiveCategoryCodes)),
   minorsPossible: z.enum(["yes", "no", "unknown"]), crossBorder: z.enum(["yes", "no", "unknown"]),
-  privacyContactName: z.string().min(1), privacyContactRole: z.string().min(1), privacyContactChannel: z.string().min(1)
+  privacyContactName: z.string().min(1), privacyContactRole: z.string().min(1), privacyContactChannel: z.string().min(1),
+  publicContactDepartment: z.string().trim().min(2).max(100), publicContactChannel: z.string().trim().min(3).max(300)
 });
 
 // 更新单位基本信息；人数口径、处理角色、敏感情况等变化可能影响适用路径，因此同步重新评估。

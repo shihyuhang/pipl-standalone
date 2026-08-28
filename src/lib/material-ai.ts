@@ -5,6 +5,8 @@ import type { MaterialDefinition } from "./materials.ts";
 import { normalizeChinaLegalText } from "./legal-language.ts";
 import { sensitiveCategoryLabels } from "./sensitive-info.ts";
 import { activityDisplayName } from "./activity-label.ts";
+import { enterpriseSubjectLabel } from "./enterprise-subjects.ts";
+import { externalProcessingRelationshipLabel, normalizedExternalProcessingRelationships } from "./external-processing.ts";
 
 const promptVersion = "material-complete-draft-v2-preview-redaction";
 
@@ -68,10 +70,13 @@ const fieldDefinitions: Array<Omit<MaterialAiFieldOption, "included">> = [
   { code: "activity.collectionChannels", group: "业务信息", label: "收集渠道", description: "信息从何处取得。" },
   { code: "activity.systems", group: "业务信息", label: "使用系统", description: "信息保存或使用的系统。" },
   { code: "activity.recipients", group: "业务信息", label: "外部接收方", description: "服务商或其他接收方。" },
+  { code: "activity.externalProcessingRelationships", group: "业务信息", label: "外部处理关系", description: "区分委托处理、独立提供、共同处理或依法报送。" },
+  { code: "activity.externalRecipientDetails", group: "业务信息", label: "外部单位和处理边界", description: "单位名称、联系渠道和实际处理边界。" },
   { code: "activity.approximatePersonCount", group: "业务信息", label: "场景涉及人数", description: "单项业务估算人数。" },
   { code: "activity.accessRoles", group: "业务信息", label: "可访问岗位", description: "内部可接触信息的岗位。" },
   { code: "activity.systemOperators", group: "业务信息", label: "系统运维方", description: "本单位或外部运维方。" },
   { code: "activity.retentionPeriod", group: "业务信息", label: "保存期限", description: "保存时间或删除条件。" },
+  { code: "activity.retentionBasis", group: "业务信息", label: "保存期限依据", description: "处理目的、起算点或法律法规另有规定的依据。" },
   { code: "activity.deletionMethod", group: "业务信息", label: "到期处理方式", description: "删除、匿名化或限制使用安排。" },
   { code: "activity.rightsChannel", group: "业务信息", label: "个人权利渠道", description: "相关个人提出请求的渠道。" },
   { code: "activity.automatedDecision", group: "业务信息", label: "自动化决策情况", description: "该业务是否涉及自动化决策。" },
@@ -128,10 +133,13 @@ function filteredBaselineDraft(baseline: string, excluded: Set<string>): string 
     "activity.informationDetails": /^- 具体字段或资料名称：.*\r?\n?/gm,
     "activity.systems": /^- 保存或使用位置：.*\r?\n?/gm,
     "activity.recipients": /^- 外部接收方：.*\r?\n?/gm,
+    "activity.externalProcessingRelationships": /^- 外部处理关系：.*\r?\n?/gm,
+    "activity.externalRecipientDetails": /^- 外部单位及处理边界：.*\r?\n?/gm,
     "activity.approximatePersonCount": /^- 场景涉及人数：.*\r?\n?/gm,
     "activity.accessRoles": /^- 可访问岗位：.*\r?\n?/gm,
     "activity.systemOperators": /^- 系统运维方：.*\r?\n?/gm,
     "activity.retentionPeriod": /^- 保存期限或删除条件：.*\r?\n?/gm,
+    "activity.retentionBasis": /^- 保存期限依据：.*\r?\n?/gm,
     "activity.deletionMethod": /^- 到期处理方式：.*\r?\n?/gm,
     "activity.rightsChannel": /^- 个人权利渠道：.*\r?\n?/gm,
     "activity.automatedDecision": /^- 自动化决策：.*\r?\n?/gm,
@@ -148,9 +156,9 @@ function filteredBaselineDraft(baseline: string, excluded: Set<string>): string 
 function rawContext(input: MaterialAiDraftInput, excluded: Set<string>): Record<string, unknown> {
   const enterprise: Record<string, unknown> = {
     单位名称: input.enterprise.legalName,
-    个人信息保护联系人: input.enterprise.privacyContactName,
-    联系人职务: input.enterprise.privacyContactRole,
-    联系渠道: input.enterprise.privacyContactChannel
+    个人信息保护联系人: input.enterprise.publicContactDepartment || "个人信息保护联系部门",
+    联系人职务: "权利请求接收部门",
+    联系渠道: input.enterprise.publicContactChannel || input.enterprise.privacyContactChannel || ""
   };
   include(excluded, "enterprise.orgType", "单位类型", input.enterprise.orgType, enterprise);
   include(excluded, "enterprise.industry", "所属行业", input.enterprise.industry, enterprise);
@@ -160,7 +168,7 @@ function rawContext(input: MaterialAiDraftInput, excluded: Set<string>): Record<
     enterprise.整体涉及人数 = input.enterprise.personCount;
     enterprise.人数口径已确认 = input.enterprise.countVerified;
   }
-  include(excluded, "enterprise.subjectCategories", "整体人员类别", input.enterprise.subjectCategories, enterprise);
+  include(excluded, "enterprise.subjectCategories", "整体人员类别", input.enterprise.subjectCategories.map(enterpriseSubjectLabel), enterprise);
   include(excluded, "enterprise.sensitiveCategories", "整体敏感信息法定类别", sensitiveCategoryLabels(input.enterprise.sensitiveCategories), enterprise);
   include(excluded, "enterprise.minorsPossible", "企业层面是否可能涉及未成年人", input.enterprise.minorsPossible, enterprise);
   include(excluded, "enterprise.crossBorder", "企业层面是否涉及境外", input.enterprise.crossBorder, enterprise);
@@ -177,10 +185,13 @@ function rawContext(input: MaterialAiDraftInput, excluded: Set<string>): Record<
     include(excluded, "activity.collectionChannels", "收集渠道", activity.facts.collectionChannels, result);
     include(excluded, "activity.systems", "使用系统", activity.facts.systems, result);
     include(excluded, "activity.recipients", "外部接收方", activity.facts.recipients, result);
+    include(excluded, "activity.externalProcessingRelationships", "外部处理关系", normalizedExternalProcessingRelationships(activity.facts).map(externalProcessingRelationshipLabel), result);
+    include(excluded, "activity.externalRecipientDetails", "外部单位及处理边界", activity.facts.externalRecipientDetails, result);
     include(excluded, "activity.approximatePersonCount", "涉及人数", activity.facts.approximatePersonCount, result);
     include(excluded, "activity.accessRoles", "可访问岗位", activity.facts.accessRoles, result);
     include(excluded, "activity.systemOperators", "系统运维方", activity.facts.systemOperators, result);
     include(excluded, "activity.retentionPeriod", "保存期限", activity.facts.retentionPeriod, result);
+    include(excluded, "activity.retentionBasis", "保存期限依据", activity.facts.retentionBasis, result);
     include(excluded, "activity.deletionMethod", "到期处理方式", activity.facts.deletionMethod, result);
     include(excluded, "activity.rightsChannel", "权利请求渠道", activity.facts.rightsChannel, result);
     include(excluded, "activity.automatedDecision", "自动化决策", activity.facts.automatedDecision, result);
@@ -228,8 +239,8 @@ function prepareTransfer(input: MaterialAiDraftInput): { preview: MaterialAiTran
     return next;
   };
   tokenFor(input.enterprise.legalName, "单位名称", "【单位名称】", true);
-  tokenFor(input.enterprise.privacyContactName, "联系人姓名", "【个人信息保护联系人】");
-  tokenFor(input.enterprise.privacyContactChannel, "联系渠道", "【联系渠道】", true);
+  tokenFor(input.enterprise.publicContactDepartment || "", "对外接收部门", "【个人信息保护联系部门】");
+  tokenFor(input.enterprise.publicContactChannel || input.enterprise.privacyContactChannel || "", "对外联系渠道", "【联系渠道】", true);
 
   const maskString = (source: string): string => {
     let value = source;

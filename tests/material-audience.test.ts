@@ -33,6 +33,12 @@ test("同一人群的多个业务可合并，内部材料可覆盖不同人群",
   assert.equal(incompatibleActivities([payroll, attendance, recruit], "internal").length, 0);
 });
 
+test("患者和产品使用者等自定义主体可映射到产品用户材料", () => {
+  const patientSupport = activity("CUSTOM-MEDICAL-SUPPORT", ["患者或产品使用者"]);
+  assert.deepEqual(classifyActivityAudienceGroups(patientSupport), ["consumer"]);
+  assert.equal(activityMatchesAudience(patientSupport, "consumer"), true);
+});
+
 test("员工告知和候选人告知分别限定适用人群", () => {
   assert.deepEqual(materialCatalog.find(item => item.code === "employee_notice")?.audienceGroups, ["employee"]);
   assert.deepEqual(materialCatalog.find(item => item.code === "candidate_notice")?.audienceGroups, ["candidate"]);

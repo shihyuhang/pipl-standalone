@@ -22,6 +22,10 @@ export interface EnterpriseProfile {
   privacyContactName: string;
   privacyContactRole: string;
   privacyContactChannel: string;
+  /** 对外公开的权利请求接收部门；与内部经办负责人分开，避免默认公开员工姓名。 */
+  publicContactDepartment?: string;
+  /** 对外公开的邮箱、电话或在线入口。 */
+  publicContactChannel?: string;
   qualificationStatus: QualificationStatus;
   qualificationSummary: string;
   onboardingCompleted: boolean;
@@ -96,10 +100,15 @@ export interface ActivityFacts {
   collectionChannels: string[];
   systems: string[];
   recipients: string[];
+  /** 外部单位与本单位之间的处理关系，用于区分委托、独立提供、共同处理和法定报送。 */
+  externalProcessingRelationships?: ExternalProcessingRelationship[];
+  /** 外部单位名称、联系渠道及处理边界等可进入告知或台账的具体说明。 */
+  externalRecipientDetails?: string;
   approximatePersonCount: number | null;
   accessRoles: string[];
   systemOperators: string[];
   retentionPeriod: string;
+  retentionBasis?: string;
   deletionMethod: string;
   rightsChannel: string;
   automatedDecision: FactAnswer;
@@ -110,6 +119,13 @@ export interface ActivityFacts {
   notes: string;
   confirmedAt: string | null;
 }
+
+export type ExternalProcessingRelationship =
+  | "entrusted_processing"
+  | "independent_provision"
+  | "joint_processing"
+  | "statutory_disclosure"
+  | "unknown";
 
 export interface BusinessDocument {
   id: string;
@@ -186,6 +202,7 @@ export interface DocumentMetadata {
   aiRedactionCount?: number;
   aiExcludedFields?: string[];
   aiPreviewConfirmedAt?: string;
+  manualAudienceOverrideActivityIds?: string[];
 }
 
 export type MaterialAiProvider = "auto" | "deepseek" | "qwen" | "kimi" | "custom" | "disabled";
@@ -226,6 +243,8 @@ export interface DocumentVersion {
   publishedBy: string;
   publishChannel: string;
   publicationEvidence: string;
+  publicationClassification: "" | "compliance_effective" | "current_state_risk_archive";
+  publicationRiskSummary: string;
   publishedAt: string | null;
 }
 

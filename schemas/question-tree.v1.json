@@ -121,15 +121,15 @@
     {
       "code": "Q-ORG-002",
       "version": 1,
-      "prompt": "贵单位的主要业务面向谁？",
-      "helpText": "这只用于推荐适合的业务场景。即使只面向企业，联系人和员工信息仍可能是个人信息。",
+      "prompt": "贵单位主要在什么关系中处理个人信息？",
+      "helpText": "这里不是询问产品卖给谁，而是初步了解个人信息来自哪些关系；后续还会确认具体涉及的自然人。",
       "answerType": "single",
       "required": true,
       "options": [
-        { "value": "B2B", "label": "主要面向企业" },
-        { "value": "B2C", "label": "主要面向个人" },
-        { "value": "both", "label": "两者都有" },
-        { "value": "internal_only", "label": "主要是内部员工管理" }
+        { "value": "B2B", "label": "企业客户或合作伙伴相关" },
+        { "value": "B2C", "label": "消费者或其他个人相关" },
+        { "value": "both", "label": "上述两类都有" },
+        { "value": "internal_only", "label": "仅涉及单位内部人员" }
       ],
       "factMappings": [{ "factCode": "ORG.BUSINESS_MODEL", "transform": "selected_value" }],
       "validityDays": 365
@@ -204,7 +204,8 @@
     {
       "code": "Q-SUBJ-001",
       "version": 1,
-      "prompt": "贵单位保存哪些人的信息？",
+      "prompt": "贵单位目前保存或使用哪些自然人的信息？",
+      "helpText": "按个人信息所涉主体选择，不以谁购买产品或谁签订合同为限；选择其他时应填写主体类型及相关场景。",
       "answerType": "multiple",
       "required": true,
       "options": [

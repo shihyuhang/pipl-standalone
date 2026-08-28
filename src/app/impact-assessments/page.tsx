@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, ClipboardCheck, FileCheck2, Plus, Printer, RefreshCw, Scale, ShieldAlert } from "lucide-react";
+import { AlertTriangle, BookOpenText, CheckCircle2, ClipboardCheck, ExternalLink, FileCheck2, Plus, Printer, RefreshCw, Scale, ShieldAlert } from "lucide-react";
 import type { PipiaCategoryCode, PipiaInstance, PipiaResponse, ProcessingActivity } from "@/lib/types";
 
 interface Recommendation { activity: ProcessingActivity; recommendedCodes: PipiaCategoryCode[]; reasons: string[] }
@@ -27,11 +27,18 @@ export default function ImpactAssessmentsPage() {
   const load = async (selectedId?: string) => {
     const data = await fetch("/api/pipia", { cache: "no-store" }).then(response => response.json());
     setInstances(data.instances || []); setRecommendations(data.recommendations || []);
-    const selected = (data.instances || []).find((item: PipiaInstance) => item.id === (selectedId || current?.id)) || data.instances?.[0];
+    const requestedActivityId = new URLSearchParams(window.location.search).get("activity");
+    const selected = (data.instances || []).find((item: PipiaInstance) => requestedActivityId && item.activityId === requestedActivityId)
+      || (data.instances || []).find((item: PipiaInstance) => !requestedActivityId && item.id === (selectedId || current?.id))
+      || (!requestedActivityId ? data.instances?.[0] : undefined);
     if (selected) {
       const full: PipiaInstance = await fetch(`/api/pipia/${selected.id}`, { cache: "no-store" }).then(response => response.json());
       setCurrent(full); setResponsibleName(full.responsibleName || ""); setResponsibleRole(full.responsibleRole || "");
-    } else setCurrent(null);
+    } else {
+      setCurrent(null);
+      const requestedRecommendation = (data.recommendations || []).find((item: Recommendation) => item.activity.id === requestedActivityId);
+      if (requestedRecommendation) { setActivityId(requestedRecommendation.activity.id); setCategoryCodes(requestedRecommendation.recommendedCodes.length ? requestedRecommendation.recommendedCodes : ["P05"]); setCreating(true); }
+    }
   };
   useEffect(() => { void load(); }, []);
 
@@ -81,10 +88,10 @@ export default function ImpactAssessmentsPage() {
 
     <div className="pipia-layout">
       <aside className="pipia-side card"><div className="card-header"><div><p className="eyebrow">评估记录</p><h2>{instances.length} 份</h2></div></div>{instances.length ? <>{unfinishedInstances.length > 0 && <><div className="pipia-list-label"><span>待完成</span><b>{unfinishedInstances.length}</b></div>{unfinishedInstances.map(item => <PipiaRecordButton key={item.id} item={item} active={current?.id === item.id} onSelect={() => void load(item.id)} />)}</>}{archivedInstances.length > 0 && <><div className="pipia-list-label archived"><span>已确认归档</span><b>{archivedInstances.length}</b></div>{archivedInstances.map(item => <PipiaRecordButton key={item.id} item={item} active={current?.id === item.id} onSelect={() => void load(item.id)} />)}</>}</> : <div className="empty-mini"><Scale /><p>还没有影响评估。只有业务触发法定情形时才需要建立。</p></div>}</aside>
-      <section className="pipia-main card">{current ? <><div className="detail-header"><div><p className="eyebrow">{readOnly ? "已确认归档" : "评估工作底稿"}</p><h2>{current.activityName}</h2><p>已选择 {current.categoryCodes.length} 类评估情形 · 完成 {Math.round(current.progress * 100)}%</p></div>{readOnly && <FileCheck2 className="success-icon" />}</div>{current.contextSnapshot && <details className="snapshot"><summary>查看建立评估时的业务事实快照</summary><div className="snapshot-grid"><div><span>涉及人员</span><strong>{current.contextSnapshot.activity.facts.dataSubjects.join("、") || "尚未填写"}</strong></div><div><span>个人信息</span><strong>{current.contextSnapshot.activity.facts.informationTypes.join("、") || "尚未填写"}</strong></div><div><span>使用目的</span><strong>{current.contextSnapshot.activity.facts.purposes.join("、") || "尚未填写"}</strong></div><div><span>保存期限</span><strong>{current.contextSnapshot.activity.facts.retentionPeriod || "尚未填写"}</strong></div></div></details>}<div className="pipia-response-list">{current.responses?.map(item => <article className="pipia-response" key={item.id}><div className="pipia-response-title"><span>{item.categoryCode}</span><div><strong>{item.categoryName}</strong><p>请基于这一项业务的真实做法作出三个判断。</p></div></div>
-          <DecisionRow label="1. 这样处理是否有明确目的，并且做法合适、确有必要？" hint="合法性判断：处理目的是否合法、正当、必要（PIPL 第56条第1项）" value={item.legality} readOnly={readOnly} options={["yes", "no", "not_applicable"]} onChange={value => patchLocal(item.categoryCode, { legality: value as PipiaResponse["legality"] })} />
-          <DecisionRow label="2. 可能给个人带来什么影响或安全风险？" hint="影响判断：对个人权益的影响程度及安全风险（PIPL 第56条第2项）" value={item.impact} readOnly={readOnly} options={["has_impact", "no_impact", "not_applicable"]} onChange={value => patchLocal(item.categoryCode, { impact: value as PipiaResponse["impact"] })} />
-          <DecisionRow label="3. 已采取的保护办法是否有效，并与风险大小相匹配？" hint="措施判断：保护措施是否合法、有效并与风险程度相适应（PIPL 第56条第3项）" value={item.measureAdequacy} readOnly={readOnly} options={["yes", "no", "not_applicable"]} onChange={value => patchLocal(item.categoryCode, { measureAdequacy: value as PipiaResponse["measureAdequacy"] })} />
+      <section className="pipia-main card">{current ? <><div className="detail-header"><div><p className="eyebrow">{readOnly ? "已确认归档" : "评估工作底稿"}</p><h2>{current.activityName}</h2><p>已选择 {current.categoryCodes.length} 类评估情形 · 完成 {Math.round(current.progress * 100)}%</p></div>{readOnly && <FileCheck2 className="success-icon" />}</div>{current.contextSnapshot && <details className="snapshot"><summary>查看建立评估时的业务事实快照</summary><div className="snapshot-grid"><div><span>涉及人员</span><strong>{current.contextSnapshot.activity.facts.dataSubjects.join("、") || "尚未填写"}</strong></div><div><span>个人信息</span><strong>{current.contextSnapshot.activity.facts.informationTypes.join("、") || "尚未填写"}</strong></div><div><span>使用目的</span><strong>{current.contextSnapshot.activity.facts.purposes.join("、") || "尚未填写"}</strong></div><div><span>保存期限</span><strong>{current.contextSnapshot.activity.facts.retentionPeriod || "尚未填写"}</strong></div></div></details>}<PipiaLegalReference /><div className="pipia-response-list">{current.responses?.map(item => <article className="pipia-response" key={item.id}><div className="pipia-response-title"><span>{item.categoryCode}</span><div><strong>{item.categoryName}</strong><p>请基于这一项业务的真实做法作出三个判断。</p></div></div>
+          <DecisionRow label="1. 这样处理是否有明确目的，并且做法合适、确有必要？" hint="依据：个人信息保护法第五十六条第（一）项" value={item.legality} readOnly={readOnly} options={["yes", "no", "not_applicable"]} onChange={value => patchLocal(item.categoryCode, { legality: value as PipiaResponse["legality"] })} />
+          <DecisionRow label="2. 可能给个人带来什么影响或安全风险？" hint="依据：个人信息保护法第五十六条第（二）项" value={item.impact} readOnly={readOnly} options={["has_impact", "no_impact", "not_applicable"]} onChange={value => patchLocal(item.categoryCode, { impact: value as PipiaResponse["impact"] })} />
+          <DecisionRow label="3. 已采取的保护办法是否有效，并与风险大小相匹配？" hint="依据：个人信息保护法第五十六条第（三）项" value={item.measureAdequacy} readOnly={readOnly} options={["yes", "no", "not_applicable"]} onChange={value => patchLocal(item.categoryCode, { measureAdequacy: value as PipiaResponse["measureAdequacy"] })} />
           <label className="field"><span>说明实际做法、风险和准备采取的措施</span><textarea readOnly={readOnly} value={item.notes} onChange={event => patchLocal(item.categoryCode, { notes: event.target.value })} placeholder="例如：地址仅用于配送，订单完成后普通客服不能继续查看；系统保留访问记录。" /></label><label className="field"><span>相关证明材料或存放位置（选填）</span><input readOnly={readOnly} value={item.evidenceNote} onChange={event => patchLocal(item.categoryCode, { evidenceNote: event.target.value })} placeholder="例如：系统权限截图、服务商合同、告知页面" /></label><div className="audit-question-actions">{item.taskId && <a className="task-created" href="/tasks"><ClipboardCheck size={14} /> 已生成处理事项</a>}{!readOnly && <button className="button small primary" disabled={busy || [item.legality, item.impact, item.measureAdequacy].includes("unanswered")} onClick={() => save(item)}>保存这一类评估</button>}</div>
         </article>)}</div>{!readOnly && <div className="audit-finish"><div><strong>{current.progress === 1 ? "评估内容已经填写完成" : "请完成所有三项判断"}</strong><p>出现“不合适”“有影响”或“措施不足”时，必须说明风险和改进办法。</p></div><button className="button primary" disabled={current.progress !== 1} onClick={() => setSigning(true)}><FileCheck2 size={16} /> 负责人确认并归档</button></div>}</> : <div className="pipia-empty"><Scale /><h2>从具体业务开始影响评估</h2><p>先选择“我的业务”中的一项记录。平台不会要求一个个人信息很少的 B2B 企业填写与它无关的评估情形。</p>{recommendations.filter(item => item.recommendedCodes.length > 0).map(item => <button key={item.activity.id} onClick={() => openCreate(item)}><ShieldAlert /><div><strong>{item.activity.name}</strong><span>{item.reasons.join("；")}</span></div><Plus /></button>)}</div>}
       </section>
@@ -97,7 +104,11 @@ export default function ImpactAssessmentsPage() {
 }
 
 function DecisionRow({ label, hint, value, options, readOnly, onChange }: { label: string; hint?: string; value: string; options: string[]; readOnly: boolean; onChange: (value: string) => void }) {
-  return <div className="decision-row"><strong>{label}</strong>{hint && <small className="decision-hint">{hint}</small>}<div>{options.map(option => <button key={option} disabled={readOnly} className={value === option ? "selected" : ""} onClick={() => onChange(option)}>{ynLabels[option]}</button>)}</div></div>;
+  return <div className="decision-row"><strong>{label}</strong>{hint && <a className="decision-hint" href="#pipia-legal-reference">{hint}</a>}<div>{options.map(option => <button key={option} disabled={readOnly} className={value === option ? "selected" : ""} onClick={() => onChange(option)}>{ynLabels[option]}</button>)}</div></div>;
+}
+
+function PipiaLegalReference() {
+  return <details className="pipia-legal-reference" id="pipia-legal-reference"><summary><BookOpenText size={16} /><span><strong>为什么需要做这三项判断？</strong><small>展开查看《个人信息保护法》第五十五条、第五十六条</small></span></summary><div><p><b>第五十五条：</b>处理敏感个人信息、利用个人信息进行自动化决策、委托处理或向其他处理者提供/公开个人信息、向境外提供个人信息，以及其他对个人权益有重大影响的处理活动，应当事前开展个人信息保护影响评估并记录处理情况。</p><p><b>第五十六条：</b>评估应当核对三个方面：</p><ol><li>处理目的、处理方式是否合法、正当、必要；</li><li>对个人权益的影响及安全风险；</li><li>保护措施是否合法、有效并与风险程度相适应。</li></ol><p>评估报告和处理情况记录应当至少保存三年。</p><a href="https://www.npc.gov.cn/npc/c2/c30834/202108/t20210820_313088.html" target="_blank" rel="noreferrer">在中国人大网查看法条原文 <ExternalLink size={13} /></a></div></details>;
 }
 
 function PipiaRecordButton({ item, active, onSelect }: { item: PipiaInstance; active: boolean; onSelect: () => void }) {

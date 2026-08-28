@@ -1,6 +1,8 @@
 import type { EnterpriseProfile, MaterialAudienceGroup, ProcessingActivity } from "./types";
 import { sensitiveCategoryLabels } from "./sensitive-info.ts";
 import { activityDisplayName } from "./activity-label.ts";
+import { externalProcessingRelationshipLabel, normalizedExternalProcessingRelationships } from "./external-processing.ts";
+import { assessRetentionRisk } from "./retention-risk.ts";
 
 export type MaterialCategory = "external" | "internal" | "agreement" | "register" | "record";
 export type MaterialRequirement = "basic" | "conditional" | "evidence";
@@ -49,11 +51,13 @@ const yn = (value: string) => value === "yes" ? "涉及" : value === "no" ? "不
 function activitySections(activities: ProcessingActivity[]) {
   return activities.map((activity, index) => {
     const facts = activity.facts;
+    const retentionAssessment = assessRetentionRisk(facts.retentionPeriod, facts.retentionBasis || "");
+    const retentionBasis = facts.retentionBasis || (retentionAssessment.level === "none" ? "以处理目的完成、业务关系结束和上述期限为判断依据" : "待结合处理目的或适用规定确认");
     const sensitiveLabels = sensitiveCategoryLabels(facts.sensitiveCategories);
     const sensitiveSummary = facts.sensitiveInformation === "yes"
       ? join(sensitiveLabels, facts.minorsInvolved === "yes" ? "不满十四周岁未成年人个人信息" : "类别待负责人确认")
       : yn(facts.sensitiveInformation);
-    return `### ${index + 1}. ${activityDisplayName(activity)}\n\n- 涉及人员：${join(facts.dataSubjects)}\n- 场景涉及人数：${facts.approximatePersonCount === null ? "待确认" : `约 ${facts.approximatePersonCount} 人`}\n- 使用的个人信息：${join(facts.informationTypes)}\n- 使用目的：${join(facts.purposes)}\n- 信息来源：${join(facts.collectionChannels)}\n- 保存或使用位置：${join(facts.systems)}\n- 可访问岗位：${join(facts.accessRoles)}\n- 系统运维方：${join(facts.systemOperators)}\n- 外部接收方：${join(facts.recipients, "不向外部提供") }\n- 保存期限或删除条件：${facts.retentionPeriod || "待确认"}\n- 到期处理方式：${facts.deletionMethod || "待确认"}\n- 个人权利渠道：${facts.rightsChannel || "待确认"}\n- 自动化决策：${yn(facts.automatedDecision)}\n- 敏感个人信息：${sensitiveSummary}\n- 不满十四周岁未成年人：${yn(facts.minorsInvolved)}\n- 境外存储或访问：${yn(facts.crossBorderAccess)}`;
+    return `### ${index + 1}. ${activityDisplayName(activity)}\n\n- 涉及人员：${join(facts.dataSubjects)}\n- 场景涉及人数：${facts.approximatePersonCount === null ? "待确认" : `约 ${facts.approximatePersonCount} 人`}\n- 使用的个人信息：${join(facts.informationTypes)}\n- 使用目的：${join(facts.purposes)}\n- 信息来源：${join(facts.collectionChannels)}\n- 保存或使用位置：${join(facts.systems)}\n- 可访问岗位：${join(facts.accessRoles)}\n- 系统运维方：${join(facts.systemOperators)}\n- 外部接收方：${join(facts.recipients, "不向外部提供")}\n- 外部处理关系：${normalizedExternalProcessingRelationships(facts).map(externalProcessingRelationshipLabel).join("、") || "不涉及"}\n- 外部单位及处理边界：${facts.externalRecipientDetails || (facts.recipients.includes("不向外部提供") ? "不涉及" : "待补充具体单位、联系渠道和处理边界")}\n- 保存期限或删除条件：${facts.retentionPeriod || "待确认"}\n- 保存期限依据：${retentionBasis}\n- 到期处理方式：${facts.deletionMethod || "待确认"}\n- 个人权利渠道：${facts.rightsChannel || "待确认"}\n- 自动化决策：${yn(facts.automatedDecision)}\n- 敏感个人信息：${sensitiveSummary}\n- 不满十四周岁未成年人：${yn(facts.minorsInvolved)}\n- 境外存储或访问：${yn(facts.crossBorderAccess)}`;
   }).join("\n\n");
 }
 
@@ -71,7 +75,7 @@ export function generateMaterialDraft(input: {
   activities: ProcessingActivity[];
 }) {
   const { type, name, scope, audience, enterprise, activities } = input;
-  const contact = [enterprise.privacyContactName, enterprise.privacyContactRole, enterprise.privacyContactChannel].filter(Boolean).join("；") || "待补充接收部门或联系人及联系渠道";
+  const contact = [enterprise.publicContactDepartment || "个人信息保护联系部门", enterprise.publicContactChannel || enterprise.privacyContactChannel].filter(Boolean).join("；") || "待补充对外权利请求接收部门及联系渠道";
   const activityText = activitySections(activities);
 
   if (type === "processing_register") {
@@ -146,9 +150,20 @@ export function generateMaterialDraft(input: {
   const sensitiveActivities = activities.filter(item => item.facts.sensitiveInformation === "yes");
   const minorActivities = activities.filter(item => item.facts.minorsInvolved === "yes");
   const crossBorderActivities = activities.filter(item => item.facts.crossBorderAccess === "yes");
-  const recipientRows = activities.flatMap(item => item.facts.recipients.filter(recipient => recipient !== "不向外部提供").map(recipient => `- ${item.name}：${recipient}；处理目的：${join(item.facts.purposes)}；处理方式和联系渠道：待逐家确认；涉及信息：${join(item.facts.informationTypes)}。`));
+  const recipientRows = activities.filter(item => item.facts.recipients.some(recipient => recipient !== "不向外部提供")).map(item => {
+    const relationships = normalizedExternalProcessingRelationships(item.facts).map(externalProcessingRelationshipLabel);
+    return `- ${activityDisplayName(item)}：关系类型为${join(relationships, "待确认处理关系")}；外部单位和联系渠道：${item.facts.externalRecipientDetails || "待补充"}；处理目的：${join(item.facts.purposes)}；涉及信息：${join(item.facts.informationTypes)}。`;
+  });
+  const sensitiveDisclosure = sensitiveActivities.map(item => {
+    const categories = join(sensitiveCategoryLabels(item.facts.sensitiveCategories), item.facts.minorsInvolved === "yes" ? "不满十四周岁未成年人个人信息" : "待确认具体敏感类别");
+    const impact = /医疗|健康|生物|身份|金融|行踪|未成年/.test(categories)
+      ? "一旦泄露或被不当使用，可能对人身、财产安全或人格尊严造成较高风险"
+      : "一旦泄露或被不当使用，可能对个人权益造成较高风险";
+    return `### ${activityDisplayName(item)}\n\n- 敏感个人信息种类：${categories}\n- 处理必要性：为实现${join(item.facts.purposes)}，需要处理与该目的直接相关的${join(item.facts.informationTypes)}；超出该范围的信息不应收集或使用\n- 对个人权益的影响：${impact}\n- 已登记的保护安排：仅限${join(item.facts.accessRoles)}访问，由${join(item.facts.systemOperators)}维护；保存期限为${item.facts.retentionPeriod || "待确认"}，到期处理方式为${item.facts.deletionMethod || "待确认"}`;
+  }).join("\n\n");
+  const riskyRetentionActivities = activities.filter(item => assessRetentionRisk(item.facts.retentionPeriod, item.facts.retentionBasis || "").level !== "none" || /没有|尚未|暂无|未建立|不删除|永久/.test(item.facts.deletionMethod || ""));
 
-  return `${header(name, enterprise)}\n\n## 一、适用对象和范围\n\n适用对象：${audience}。\n\n适用范围：${scope}。\n\n${titleIntro}\n\n## 二、我们怎样处理个人信息\n\n${activityText}\n\n## 三、敏感个人信息\n\n${sensitiveActivities.length ? `以下业务涉及敏感个人信息：${sensitiveActivities.map(item => item.name).join("、")}。开展相关处理前，应结合具体信息说明处理必要性、对个人权益的影响和保护措施，并依法取得单独同意或满足其他适用条件。` : "当前已确认业务不涉及敏感个人信息。业务情况发生变化时，我们将重新核对并更新本材料。"}\n\n## 四、不满十四周岁未成年人个人信息\n\n${minorActivities.length ? `以下业务涉及不满十四周岁未成年人个人信息：${minorActivities.map(item => item.name).join("、")}。我们将取得监护人同意，制定并公开专门的处理规则，采取更严格的访问控制和安全保护措施。` : "当前已确认业务不涉及不满十四周岁未成年人个人信息。如业务可能面向此类人员，将在处理前制定专门规则并取得监护人同意。"}\n\n## 五、委托处理和向其他单位提供\n\n${recipientRows.length ? recipientRows.join("\n") : "当前已确认业务未记录向外部单位提供个人信息。"}\n\n对外提供个人信息时，我们将按实际情况说明接收方名称和联系方式、处理目的、处理方式、个人信息种类以及个人向接收方行使权利的方式和程序。\n\n## 六、向境外提供个人信息\n\n${crossBorderActivities.length ? `以下业务存在境外存储或访问：${crossBorderActivities.map(item => item.name).join("、")}。正式开展前还需逐项确认境外接收方、联系方式、处理目的和方式、信息种类、保存地点以及权利行使渠道，并完成适用的告知、单独同意和其他程序。` : "当前已确认业务不涉及向境外提供个人信息或境外访问。"}\n\n## 七、保存和删除\n\n我们按照各业务记录的保存期限或删除条件处理个人信息。处理目的完成、保存期限届满或不再需要时，将依法删除、匿名化或限制其他用途。\n\n## 八、您的权利\n\n您可以就与您相关的个人信息提出查阅、复制、更正、补充、删除、撤回同意或解释处理规则等请求。为保护信息安全，我们可能进行必要的身份核验。\n\n## 九、如何联系我们\n\n个人信息权利请求接收人或部门及联系渠道：${contact}。\n\n## 十、材料更新\n\n业务、信息类型、处理方式、系统、接收方或保存期限发生变化时，我们将重新检查本材料，并通过新版本记录修改和发布情况。`;
+  return `${header(name, enterprise)}\n\n## 一、适用对象和范围\n\n适用对象：${audience}。\n\n适用范围：${scope}。\n\n${titleIntro}\n\n## 二、我们怎样处理个人信息\n\n${activityText}\n\n## 三、敏感个人信息\n\n${sensitiveActivities.length ? sensitiveDisclosure : "当前已确认业务不涉及敏感个人信息。业务情况发生变化时，我们将重新核对并更新本材料。"}\n\n## 四、不满十四周岁未成年人个人信息\n\n${minorActivities.length ? `以下业务涉及不满十四周岁未成年人个人信息：${minorActivities.map(activityDisplayName).join("、")}。本材料不能代替专门的未成年人个人信息处理规则；在取得监护人同意并发布专门规则前，不应启动相关处理。` : "当前已确认业务不涉及不满十四周岁未成年人个人信息。如业务可能面向此类人员，将在处理前制定专门规则并取得监护人同意。"}\n\n## 五、外部处理关系\n\n${recipientRows.length ? recipientRows.join("\n") : "当前已确认业务未记录向外部单位提供个人信息。"}\n\n委托处理时，受托方仅按本单位指示处理；向其他个人信息处理者提供时，应另行说明接收方名称和联系方式、处理目的、处理方式、个人信息种类及权利行使方式；共同处理和依法报送分别按其实际法律关系办理。\n\n## 六、向境外提供个人信息\n\n${crossBorderActivities.length ? `以下业务存在境外存储或访问：${crossBorderActivities.map(activityDisplayName).join("、")}。正式开展前还需逐项确认境外接收方、联系方式、处理目的和方式、信息种类、保存地点以及权利行使渠道，并完成适用的告知、单独同意和其他程序。` : "当前已确认业务不涉及向境外提供个人信息或境外访问。"}\n\n## 七、保存和删除\n\n${riskyRetentionActivities.length ? `当前登记的以下业务存在保存期限或删除机制待整改事项：${riskyRetentionActivities.map(activityDisplayName).join("、")}。本段仅记录当前实际情况，不构成已经满足最短必要期限要求的承诺；完成整改并更新业务记录前，本材料只能归档现状，不能作为合规有效版本发布。` : "我们按照各业务记录的保存期限或删除条件处理个人信息。处理目的完成、保存期限届满或不再需要时，将依法删除、匿名化或限制其他用途。"}\n\n## 八、您的权利\n\n您可以就与您相关的个人信息提出查阅、复制、更正、补充、删除、撤回同意或解释处理规则等请求。为保护信息安全，我们可能进行必要的身份核验。\n\n## 九、如何联系我们\n\n个人信息权利请求接收部门及联系渠道：${contact}。\n\n## 十、材料更新\n\n业务、信息类型、处理方式、系统、接收方或保存期限发生变化时，我们将重新检查本材料，并通过新版本记录修改和发布情况。`;
 }
 
 export function materialTypeName(code: string) {

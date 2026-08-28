@@ -5,19 +5,25 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, ArrowRight, Building2, CheckCircle2, ClipboardList, FileText, Plus, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getComplianceProgress } from "@/lib/dashboard-progress";
+import { getDashboardTaskGuidance, prioritizeDashboardTasks } from "@/lib/dashboard-priority";
 import { assessQualification } from "@/lib/qualification";
 import type { DashboardData } from "@/lib/types";
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
+  const [viewMode, setViewMode] = useState<"guided" | "full">("guided");
   const load = () => fetch("/api/dashboard", { cache: "no-store" }).then(r => r.ok ? r.json() : Promise.reject()).then(setData).catch(() => setError("暂时无法读取工作台，请稍后刷新。"));
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); setViewMode(window.localStorage.getItem("pipl-home-view") === "full" ? "full" : "guided"); }, []);
+  const changeViewMode = (mode: "guided" | "full") => { setViewMode(mode); window.localStorage.setItem("pipl-home-view", mode); };
   if (error) return <div className="alert danger">{error}</div>;
   if (!data) return <div className="loading"><RefreshCw className="spin" /> 正在整理您的合规工作台…</div>;
   if (!data.enterprise.onboardingCompleted) return <Welcome />;
 
-  const openTasks = data.tasks.filter(t => t.status !== "completed").slice(0, 4);
+  const priorityContext = { activityCount: data.counts.activities };
+  const openTasks = prioritizeDashboardTasks(data.tasks.filter(t => t.status !== "completed"), priorityContext).slice(0, 4);
+  const primaryTask = openTasks[0];
+  const primaryGuidance = primaryTask ? getDashboardTaskGuidance(primaryTask, priorityContext) : null;
   const staleDocuments = data.documents.filter(d => d.healthStatus === "needs_review" || d.healthStatus === "overdue");
   const qualification = assessQualification(data.enterprise);
   const progress = getComplianceProgress({
@@ -28,7 +34,7 @@ export default function DashboardPage() {
     followUpRecordCount: data.counts.followUpRecords
   });
   return <>
-    <section className="page-heading"><div><p className="eyebrow">工作台首页</p><h1>您好，{data.enterprise.legalName}</h1><p>根据业务变化，系统持续整理适用义务、材料和待办。</p></div><Link className="button secondary" href="/business"><Plus size={17} /> 记录业务</Link></section>
+    <section className="page-heading"><div><p className="eyebrow">工作台首页</p><h1>您好，{data.enterprise.legalName}</h1><p>{viewMode === "guided" ? "先完成系统排在最前的一项；需要查看全部进度时可切换完整视图。" : "根据业务变化，系统持续整理适用义务、材料和待办。"}</p></div><div className="heading-actions"><button className="button secondary" onClick={() => changeViewMode(viewMode === "guided" ? "full" : "guided")}>{viewMode === "guided" ? "查看完整进度" : "返回引导视图"}</button><Link className="button secondary" href="/business"><Plus size={17} /> 记录业务</Link></div></section>
 
     {staleDocuments.length > 0 && <Link href="/documents" className="alert warning change-alert"><AlertTriangle size={16} /><div><strong>单位或业务情况已更新</strong><span>{staleDocuments.length} 份合规材料需复核更新，涉及：{staleDocuments.slice(0, 2).map(d => d.name).join("、")}{staleDocuments.length > 2 ? ` 等 ${staleDocuments.length} 份` : ""}。</span></div><ArrowRight size={15} /></Link>}
 
@@ -38,7 +44,8 @@ export default function DashboardPage() {
       <Link href="/business" className="button secondary small">单位情况有变化？前往修改 <ArrowRight size={15} /></Link>
     </section>
 
-    <section className="card progress-card">
+    <div className="home-main-layout">
+    {viewMode === "full" && <section className="card progress-card">
       <div className="progress-card-label">合规建设进度</div>
       <div className="progress-steps">
         {progress.map((step, index) => <div className="progress-fragment" key={step.code}>
@@ -46,25 +53,38 @@ export default function DashboardPage() {
           <div className={`progress-step ${step.status}`}><div className="progress-dot">{step.status === "done" ? "✓" : index + 1}</div><span>{step.label}</span></div>
         </div>)}
       </div>
-    </section>
+    </section>}
 
-    <div className="metric-grid">
+    {viewMode === "full" && <div className="metric-grid">
       <Link href="/business" className="metric-card"><Building2 /><div><strong>{data.counts.activities}</strong><span>已记录业务</span></div><ArrowRight className="metric-arrow" /></Link>
       <Link href="/documents" className="metric-card"><FileText /><div><strong>{data.counts.documents}</strong><span>合规材料</span></div><ArrowRight className="metric-arrow" /></Link>
       <Link href="/compliance-check" className="metric-card"><ShieldCheck /><div><strong>{data.counts.signedAudits}/{data.counts.audits}</strong><span>已归档 / 全面检查</span></div><ArrowRight className="metric-arrow" /></Link>
       <Link href="/tasks" className="metric-card"><ClipboardList /><div><strong>{data.counts.openTasks}</strong><span>待办理事项</span></div><ArrowRight className="metric-arrow" /></Link>
-    </div>
+    </div>}
 
-    <div className="dashboard-grid">
-      <section className="card"><div className="card-header"><div><p className="eyebrow">今天需要处理</p><h2>下一步做什么</h2></div><Link href="/tasks" className="text-link">查看全部 <ArrowRight size={15} /></Link></div>
-        {openTasks.length ? <div className="task-list compact">{openTasks.map((task, index) => <Link href="/tasks" className="task-row" key={task.id}><span className="task-index">{index + 1}</span><div><strong>{task.title}</strong><p>{task.description}</p></div>{task.priority === "high" && <AlertTriangle size={17} className="warning-icon" />}<ArrowRight size={17} /></Link>)}</div> : <div className="all-clear"><CheckCircle2 /><div><strong>当前没有待办</strong><p>业务发生变化时，请及时更新企业情况。</p></div></div>}
+    <div className={`dashboard-grid ${viewMode === "guided" ? "guided" : ""}`}>
+      <section className="card priority-card"><div className="card-header"><div><p className="eyebrow">系统已按影响排序</p><h2>现在先做什么</h2></div><Link href="/tasks" className="text-link">查看全部 <ArrowRight size={15} /></Link></div>
+        <p className="dashboard-priority-note">先判断适用范围和高风险事项，再补齐基础事实，最后完善常规材料。</p>
+        {primaryTask && primaryGuidance ? <>
+          <Link href={`/tasks?task=${primaryTask.id}`} className={`primary-task-callout urgency-${primaryGuidance.urgency}`}>
+            <div className="primary-task-icon">{primaryGuidance.urgency === "immediate" ? <ShieldAlert size={21} /> : <ClipboardList size={21} />}</div>
+            <div className="primary-task-copy"><span className={`task-urgency-badge urgency-${primaryGuidance.urgency}`}>{primaryGuidance.label}</span><h3>{primaryTask.title}</h3><p><strong>为什么排在最前：</strong>{primaryGuidance.reason}</p></div>
+            <span className="primary-task-action">开始处理 <ArrowRight size={16} /></span>
+          </Link>
+          {openTasks.length > 1 && <div className="next-task-heading">完成上项后，再按此顺序办理</div>}
+          <div className="task-list compact">{openTasks.slice(1).map(task => {
+            const guidance = getDashboardTaskGuidance(task, priorityContext);
+            return <Link href={`/tasks?task=${task.id}`} className="task-row" key={task.id}><span className={`task-urgency-badge urgency-${guidance.urgency}`}>{guidance.label}</span><div><strong>{task.title}</strong><p>{guidance.reason}</p></div><ArrowRight size={17} /></Link>;
+          })}</div>
+        </> : <div className="all-clear"><CheckCircle2 /><div><strong>当前没有待办</strong><p>业务发生变化时，请及时更新企业情况。</p></div></div>}
       </section>
-      <section className="card quick-card"><div className="card-header"><div><p className="eyebrow">常用操作</p><h2>快速开始</h2></div></div>
+      {viewMode === "full" && <section className="card quick-card"><div className="card-header"><div><p className="eyebrow">其他入口</p><h2>按需使用</h2></div></div><p className="quick-card-hint">以下是快捷入口，不代表当前优先顺序。</p>
         <Link href="/business"><div className="quick-icon blue"><Plus /></div><div><strong>记录一项业务</strong><span>说明怎样使用个人信息</span></div><ArrowRight /></Link>
         <Link href="/documents"><div className="quick-icon green"><FileText /></div><div><strong>建立隐私声明</strong><span>生成草稿并管理版本</span></div><ArrowRight /></Link>
         <Link href="/compliance-check"><div className="quick-icon green"><ShieldCheck /></div><div><strong>继续合规检查</strong><span>系统根据当前业务告诉您下一步</span></div><ArrowRight /></Link>
         <Link href="/records"><div className="quick-icon amber"><ClipboardList /></div><div><strong>查看合规记录</strong><span>了解已经完成的工作</span></div><ArrowRight /></Link>
-      </section>
+      </section>}
+    </div>
     </div>
   </>;
 }

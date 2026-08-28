@@ -1,5 +1,13 @@
 import type { ActivityFacts } from "./types";
 import { normalizeSensitiveCategoryCodes } from "./sensitive-info.ts";
+import { assessRetentionRisk } from "./retention-risk.ts";
+import { activityOptionGroups } from "./scenario-guidance.ts";
+import { hasExternalRecipient, normalizedExternalProcessingRelationships } from "./external-processing.ts";
+
+export function hasRequiredInformationTypeDetail(facts: Pick<ActivityFacts, "informationTypes">): boolean {
+  if (!facts.informationTypes.includes("其他信息")) return facts.informationTypes.length > 0;
+  return facts.informationTypes.some(value => !(activityOptionGroups.informationTypes as readonly string[]).includes(value));
+}
 
 export const emptyActivityFacts = (): ActivityFacts => ({
   dataSubjects: [],
@@ -9,10 +17,13 @@ export const emptyActivityFacts = (): ActivityFacts => ({
   collectionChannels: [],
   systems: [],
   recipients: [],
+  externalProcessingRelationships: [],
+  externalRecipientDetails: "",
   approximatePersonCount: null,
   accessRoles: [],
   systemOperators: [],
   retentionPeriod: "",
+  retentionBasis: "",
   deletionMethod: "",
   rightsChannel: "",
   automatedDecision: "",
@@ -42,11 +53,14 @@ export function normalizeActivityFacts(value: unknown): ActivityFacts {
     collectionChannels: array(source.collectionChannels),
     systems: array(source.systems),
     recipients: array(source.recipients),
+    externalProcessingRelationships: array(source.externalProcessingRelationships).filter(item => ["entrusted_processing", "independent_provision", "joint_processing", "statutory_disclosure", "unknown"].includes(item)) as ActivityFacts["externalProcessingRelationships"],
+    externalRecipientDetails: String(source.externalRecipientDetails || "").slice(0, 1500),
     approximatePersonCount: hasPersonCount && Number.isFinite(Number(rawPersonCount)) && Number(rawPersonCount) >= 0
       ? Number(rawPersonCount) : null,
     accessRoles: array(source.accessRoles),
     systemOperators: array(source.systemOperators),
     retentionPeriod: String(source.retentionPeriod || "").slice(0, 500),
+    retentionBasis: String(source.retentionBasis || "").slice(0, 1000),
     deletionMethod: String(source.deletionMethod || "").slice(0, 1000),
     rightsChannel: String(source.rightsChannel || "").slice(0, 500),
     automatedDecision: answer(source.automatedDecision),
@@ -60,17 +74,20 @@ export function normalizeActivityFacts(value: unknown): ActivityFacts {
 }
 
 export function activityFactsCompleteness(facts: ActivityFacts): number {
+  const externalRelationships = normalizedExternalProcessingRelationships(facts);
+  const externalRecipientReady = !hasExternalRecipient(facts) || (externalRelationships.length > 0
+    && (externalRelationships.includes("unknown") || String(facts.externalRecipientDetails || "").trim().length >= 5));
   const checks = [
     facts.dataSubjects.length > 0,
-    facts.informationTypes.length > 0,
+    hasRequiredInformationTypeDetail(facts),
     facts.purposes.length > 0,
     facts.collectionChannels.length > 0,
     facts.systems.length > 0,
-    facts.recipients.length > 0,
+    facts.recipients.length > 0 && externalRecipientReady,
     facts.approximatePersonCount !== null,
     facts.accessRoles.length > 0,
     facts.systemOperators.length > 0,
-    facts.retentionPeriod.trim().length > 0,
+    facts.retentionPeriod.trim().length > 0 && !assessRetentionRisk(facts.retentionPeriod, facts.retentionBasis).requiresBasis,
     facts.deletionMethod.trim().length > 0,
     facts.rightsChannel.trim().length > 0,
     facts.automatedDecision !== "",

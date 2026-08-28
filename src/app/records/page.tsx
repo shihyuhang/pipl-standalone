@@ -9,7 +9,7 @@ export default function RecordsPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   useEffect(() => { fetch("/api/dashboard", { cache: "no-store" }).then(response => response.json()).then(setData); }, []);
   return <>
-    <section className="page-heading"><div><p className="eyebrow">记录与导出</p><h1>合规工作留痕</h1><p>企业信息、材料版本、合规检查、影响评估和事项办理均形成时间记录。</p></div><button className="button secondary" onClick={() => window.print()}><Download size={17} /> 打印当前档案</button></section>
+    <section className="page-heading"><div><p className="eyebrow">记录与导出</p><h1>合规工作留痕</h1><p>企业信息、材料版本、合规检查、影响评估和事项办理均形成时间记录。</p></div><div className="print-action"><button className="button secondary" onClick={() => window.print()}><Download size={17} /> 打印档案概览</button><small>打印本页的企业档案概览和最近记录；材料正文、自查表及影响评估请进入对应页面单独打印。</small></div></section>
     <div className="records-grid">
       <section className="card"><div className="card-header"><div><p className="eyebrow">合规时间线</p><h2>最近记录</h2></div><History /></div>{data?.recentEvents.length ? <div className="timeline">{data.recentEvents.map(event => <div className="timeline-item" key={event.id}><span /><div><strong>{event.summary}</strong><time>{new Date(event.createdAt).toLocaleString("zh-CN", { hour12: false })}</time></div></div>)}</div> : <div className="empty-mini"><Archive /><p>完成建档或创建材料后，这里会自动形成记录。</p></div>}</section>
       <section className="card archive-card"><div className="card-header"><div><p className="eyebrow">档案概览</p><h2>当前可归集内容</h2></div><LockKeyhole /></div>

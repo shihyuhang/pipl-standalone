@@ -18,6 +18,7 @@ export async function POST(request: Request) {
     audience: z.string().min(1),
     description: z.string().optional().default(""),
     activityIds: z.array(z.string().uuid()).min(1),
+    audienceOverrideActivityIds: z.array(z.string().uuid()).max(100).optional().default([]),
     modules: z.array(z.string()).optional(),
     generationMode: z.enum(["ai", "template"]).optional().default("template"),
     excludedAiFields: z.array(z.string().max(100)).max(40).optional().default([]),
@@ -36,7 +37,11 @@ export async function POST(request: Request) {
   if (!definition.audienceGroups.includes(parsed.data.audienceGroup)) {
     return NextResponse.json({ message: "该材料类型不适用于所选人群，请重新选择。" }, { status: 409 });
   }
-  const incompatible = incompatibleActivities(activities, parsed.data.audienceGroup);
+  const overrideIds = new Set(parsed.data.audienceOverrideActivityIds);
+  if ([...overrideIds].some(id => !parsed.data.activityIds.includes(id))) {
+    return NextResponse.json({ message: "人工确认的人群映射必须属于本次关联业务。" }, { status: 409 });
+  }
+  const incompatible = incompatibleActivities(activities, parsed.data.audienceGroup).filter(item => !overrideIds.has(item.id));
   if (incompatible.length) {
     return NextResponse.json({ message: `以下业务不属于“${parsed.data.audience}”范围：${incompatible.map(item => item.name).join("、")}。请分开建立材料。` }, { status: 409 });
   }
@@ -80,6 +85,7 @@ export async function POST(request: Request) {
       trigger: definition.trigger,
       legalBasis: definition.legalBasis,
       generationMethod,
+      manualAudienceOverrideActivityIds: parsed.data.audienceOverrideActivityIds,
       ...aiMetadata
     }
   }), { status: 201 });
