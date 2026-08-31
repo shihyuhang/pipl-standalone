@@ -92,7 +92,10 @@ export const smallProcessorScenarios: SmallProcessorScenario[] = [
       purposes: ["员工管理"],
       systems: ["HR或薪酬系统"],
       sensitiveInformation: "yes",
-      sensitiveCategories: ["medical_health"]
+      sensitiveCategories: ["medical_health"],
+      sensitiveNecessity: "健康证明用于依法办理病假和员工福利，无法由一般考勤状态替代",
+      sensitiveRightsImpact: "泄露可能造成健康隐私暴露或不当歧视",
+      sensitiveProtectionMeasures: "仅人力资源经办人员访问，加密保存并按期删除"
     },
     expectedQualification: "needs_review",
     expectedReadyForTriage: true,

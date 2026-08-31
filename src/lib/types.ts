@@ -114,6 +114,12 @@ export interface ActivityFacts {
   automatedDecision: FactAnswer;
   sensitiveInformation: FactAnswer;
   sensitiveCategories?: string[];
+  /** 针对本业务所涉敏感个人信息，逐项说明为何处理不可替代。 */
+  sensitiveNecessity?: string;
+  /** 针对本业务说明泄露、滥用或错误处理可能给个人权益造成的具体影响。 */
+  sensitiveRightsImpact?: string;
+  /** 针对本业务记录已经采取或计划采取的严格保护措施。 */
+  sensitiveProtectionMeasures?: string;
   minorsInvolved: FactAnswer;
   crossBorderAccess: FactAnswer;
   notes: string;

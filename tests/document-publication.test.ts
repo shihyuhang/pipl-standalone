@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { emptyActivityFacts } from "../src/lib/activity-facts.ts";
-import { findDocumentPublicationRisks } from "../src/lib/document-publication.ts";
+import { findDocumentPublicationRisks, findExternalContentQualityRisks } from "../src/lib/document-publication.ts";
 import type { BusinessDocument, ProcessingActivity } from "../src/lib/types.ts";
 
 const activity: ProcessingActivity = {
@@ -47,4 +47,46 @@ test("对外材料的占位内容、外部关系和影响评估都是有效发�
   });
   assert.ok(risks.some(item => /占位内容/.test(item)));
   assert.ok(risks.some(item => /影响评估/.test(item)));
+});
+
+test("对外材料阻止内部渠道外泄并要求敏感处理三项事实", () => {
+  const externalActivity = {
+    ...activity,
+    facts: {
+      ...activity.facts,
+      retentionPeriod: "投诉处理完成后三年",
+      retentionBasis: "质量追溯所需",
+      deletionMethod: "每季度删除到期工单",
+      minorsInvolved: "no" as const
+    }
+  };
+  const risks = findDocumentPublicationRisks({ ...document, type: "privacy_notice" }, [externalActivity], [], {
+    content: "联系渠道：internal@example.com",
+    enterprise: { publicContactDepartment: "法务与合规部", publicContactChannel: "rights@example.com", privacyContactChannel: "internal@example.com" }
+  });
+  assert.ok(risks.some(item => /内部联系人渠道/.test(item)));
+  assert.ok(risks.some(item => /充分必要性/.test(item)));
+  assert.ok(risks.some(item => /具体影响/.test(item)));
+  assert.ok(risks.some(item => /严格保护措施/.test(item)));
+});
+
+test("对外正文校验拦截系统占位分类、内部运维细节和不完整接收方机制", () => {
+  const provisionActivity: ProcessingActivity = {
+    ...activity,
+    facts: {
+      ...activity.facts,
+      recipients: ["客户或合作方"],
+      externalProcessingRelationships: ["independent_provision"],
+      externalRecipientDetails: "患者就诊医院接收售后调查结果"
+    }
+  };
+  const risks = findExternalContentQualityRisks({
+    type: "privacy_notice",
+    content: "单位：测试公司\n使用的个人信息：姓名、其他信息\n使用目的：售后处理\n处理方式：收集和使用\n保存期限：三年\n您的权利：可申请删除\n可访问岗位：客服",
+    activities: [provisionActivity],
+    enterprise: { legalName: "测试公司", publicContactDepartment: "法务部", publicContactChannel: "rights@example.com" }
+  });
+  assert.ok(risks.some(item => /系统占位分类/.test(item)));
+  assert.ok(risks.some(item => /内部处理台账/.test(item)));
+  assert.ok(risks.some(item => /另行告知机制/.test(item)));
 });

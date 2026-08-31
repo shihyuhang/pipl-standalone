@@ -173,6 +173,11 @@ button { color: inherit; }
 .action-item > svg { width: 16px; flex: 0 0 auto; margin-top: 1px; color: #a0740b; }
 .action-item strong { display: block; color: var(--ink); font-size: 11px; }
 .action-item span { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; line-height: 1.55; }
+.coverage-action { width: 100%; padding: 8px; border: 0; border-radius: 9px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.coverage-action:hover { background: #fff3d7; }
+.coverage-action > div { flex: 1; }
+.coverage-action > svg:last-child { margin-left: auto; color: var(--blue); }
+.coverage-target { margin: 0 0 12px; }
 .compare-panel { margin-top: 18px; padding: 15px; border: 1px solid #cbd9e7; border-radius: 12px; background: #f6f9fc; }
 .compare-panel-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--brand); }
 .compare-panel-header strong { font-size: 11px; }
@@ -405,6 +410,12 @@ a.legal-material-card { text-decoration: none; color: inherit; }
 .public-contact-box { margin-top: 12px; border-color: #b9d0e8; background: #f4f8fc; }
 .sensitive-result { margin-top: 12px; }
 .sensitive-identification > .field-help { display: block; margin-top: 10px; line-height: 1.65; }
+.sensitive-fact-details { margin-top: 12px; padding: 13px; border: 1px solid #c9b9e8; border-radius: 11px; background: #faf8fe; display: grid; gap: 12px; }
+.sensitive-fact-details label { display: grid; gap: 6px; }
+.sensitive-fact-details label > span { font-size: 10px; font-weight: 750; }
+.sensitive-fact-details label > span b { color: var(--danger); font-size: 8px; }
+.sensitive-fact-details label > small { color: var(--muted); font-size: 8px; line-height: 1.55; }
+.sensitive-fact-details .fact-notes { min-height: 86px; }
 .information-detail-field .fact-notes { min-height: 78px; }
 .sensitive-ai-box { margin: 12px 0 14px; padding: 13px; border: 1px solid #c9b9e8; border-radius: 11px; background: #faf8fe; }
 .sensitive-scenario-guide { margin: 11px 0; padding: 12px; border: 1px solid #b9d4ee; border-radius: 10px; background: #f5faff; }.sensitive-scenario-guide > div { display: flex; align-items: center; gap: 7px; color: #215f9b; }.sensitive-scenario-guide ul { margin: 9px 0 7px; padding-left: 19px; display: grid; grid-template-columns: 1fr 1fr; gap: 5px 18px; color: #3e5368; font-size: 9px; line-height: 1.55; }.sensitive-scenario-guide > small { display: block; color: var(--muted); font-size: 9px; line-height: 1.5; }
@@ -498,7 +509,10 @@ a.legal-material-card { text-decoration: none; color: inherit; }
 .workflow-modal { width: min(680px, 100%); }
 .publication-risk-panel { margin: 14px 0; padding: 14px; border: 1px solid #e7c983; border-radius: 11px; background: #fffaf0; }
 .publication-risk-panel > strong { font-size: 11px; }
-.publication-risk-panel ul { margin: 8px 0 13px; padding-left: 19px; color: #76551d; font-size: 9px; line-height: 1.65; }
+.publication-risk-panel ul { margin: 10px 0 13px; padding: 0; color: #76551d; font-size: 10px; line-height: 1.55; list-style: none; display: grid; gap: 7px; }
+.publication-risk-panel li { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 8px 9px; border-radius: 8px; background: rgba(255,255,255,.7); }
+.publication-risk-panel li > span { flex: 1; }
+.publication-risk-panel li a, .publication-risk-panel li > button { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 3px; border: 0; background: transparent; color: var(--blue); font: inherit; font-weight: 750; text-decoration: none; cursor: pointer; }
 .publication-risk-panel .choice { min-height: 74px; }
 .publication-risk-panel .choice strong, .publication-risk-panel .choice small { display: block; }
 .publication-risk-panel .choice small { margin-top: 5px; color: var(--muted); font-size: 8px; line-height: 1.45; }

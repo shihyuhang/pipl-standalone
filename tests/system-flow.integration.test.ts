@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { emptyActivityFacts } from "../src/lib/activity-facts.ts";
+import { generateMaterialDraft } from "../src/lib/materials.ts";
 
 process.env.PIPL_DATABASE_PATH = join(tmpdir(), `pipl-system-flow-${randomUUID()}.db`);
 
@@ -25,6 +26,8 @@ test("完整业务流会自动关闭可由系统核验的任务", async () => {
     privacyContactName: "测试负责人",
     privacyContactRole: "行政负责人",
     privacyContactChannel: "privacy@example.test",
+    publicContactDepartment: "法务与合规部",
+    publicContactChannel: "rights@example.test",
     qualificationStatus: "eligible",
     qualificationSummary: "适用小型处理者工作路径",
     onboardingCompleted: true
@@ -57,13 +60,14 @@ test("完整业务流会自动关闭可由系统核验的任务", async () => {
     minorsInvolved: "no",
     crossBorderAccess: "no"
   });
+  const confirmedActivity = db.getActivity(activity.id)!;
   const document = db.createDocument({
     name: "业务联系人个人信息告知",
     type: "b2b_contact_notice",
     scope: "客户和供应商联系",
     audience: "客户和供应商联系人",
     activityIds: [activity.id],
-    content: "这是一份用于验证材料生命周期的完整测试告知内容，包含必要的业务说明。"
+    content: generateMaterialDraft({ type: "b2b_contact_notice", name: "业务联系人个人信息告知", scope: "客户和供应商联系", audience: "客户和供应商联系人", enterprise: db.getEnterprise(), activities: [confirmedActivity] })
   });
   tasks = db.listTasks();
   assert.equal(tasks.find(item => item.code === `COMPLETE-${activity.id}`)?.completionMode, "automatic");
@@ -81,7 +85,7 @@ test("材料草稿可由负责人直接发布且不能跨材料操作", async ()
   const activity = db.listActivities()[0];
   const second = db.createDocument({
     name: "第二份测试材料", type: "privacy_notice", scope: "测试范围", audience: "测试人员", activityIds: [activity.id],
-    content: "这是第二份用于验证版本归属和发布约束的完整测试材料内容。"
+    content: generateMaterialDraft({ type: "privacy_notice", name: "第二份测试材料", scope: "测试范围", audience: "测试人员", enterprise: db.getEnterprise(), activities: [activity] })
   });
   const secondDraft = second.versions![0];
   const first = db.listDocuments().find(item => item.name === "业务联系人个人信息告知")!;
@@ -229,7 +233,7 @@ test("首次建档不会误触发已发布材料的复核，后续真实变更�
   db.updateEnterprise({ ...base, onboardingCompleted: false });
   const clean = db.createDocument({
     name: "建档影响专用观察材料", type: "privacy_notice", scope: "建档影响测试", audience: "测试人员", activityIds: [activity.id],
-    content: "这是一份用于验证首次建档是否误触发复核的完整测试材料内容，发布为当前版本。"
+    content: generateMaterialDraft({ type: "privacy_notice", name: "建档影响专用观察材料", scope: "建档影响测试", audience: "测试人员", enterprise: db.getEnterprise(), activities: [db.getActivity(activity.id)!] })
   });
   db.publishDocumentVersion(clean.id, clean.versions![0].id, { publishedBy: "测试负责人", publishChannel: "官网" });
   assert.equal(db.getDocument(clean.id)!.healthStatus, "current");

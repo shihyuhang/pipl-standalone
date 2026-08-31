@@ -138,7 +138,10 @@ export default function TasksPage() {
   const [error, setError] = useState("");
 
   const load = async (selectedId?: string) => {
-    const next = await fetch("/api/dashboard", { cache: "no-store" }).then(response => response.json()) as DashboardData;
+    const next = await fetch(`/api/dashboard?fresh=${Date.now()}`, {
+      cache: "no-store",
+      headers: { "Cache-Control": "no-cache" }
+    }).then(response => response.json()) as DashboardData;
     setData(next);
     if (selectedId) {
       const task = next.tasks.find(item => item.id === selectedId) || null;
@@ -154,6 +157,13 @@ export default function TasksPage() {
   useEffect(() => {
     const selectedId = new URLSearchParams(window.location.search).get("task") || undefined;
     void load(selectedId);
+    const refresh = () => { if (document.visibilityState === "visible") void load(); };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, []);
 
   const openTask = (task: TaskItem) => {

@@ -55,10 +55,10 @@ const ruleDefinitions: Array<{
   { category: "biometric", pattern: /人脸识别|人脸比对|刷脸|指纹|掌纹|虹膜|声纹|步态识别|基因/, reasoning: "描述中出现了用于识别身份的生物特征或识别方式。", question: "这些特征是否会经过技术处理，用于识别或验证个人身份？" },
   { category: "religious_belief", pattern: /宗教信仰|宗教组织|宗教活动|宗教习俗|教派/, reasoning: "描述中出现了宗教信仰、组织、活动或习俗信息。", question: "是否会记录具体宗教信仰、所属宗教组织或参加的宗教活动？" },
   { category: "specific_identity", pattern: /残障|残疾|残疾证明|特殊职业身份|不适宜公开的职业|特定身份/, reasoning: "描述中出现了可能不适宜公开的特定身份信息。", question: "请确认是否保存残疾证明或其他可直接反映特定身份的资料，以及泄露后是否容易造成歧视、人格尊严受损或人身安全风险。" },
-  { category: "medical_health", pattern: /病症|病史|诊断|体检报告|体检结果|职业健康检查|病假证明|就诊|检验报告|检查报告|生育信息|工伤认定|医疗报销|保险理赔|医疗记录|健康档案/, reasoning: "描述中出现了疾病、体检、就诊、工伤、生育、医疗报销或保险理赔资料。", question: "请区分：是否仅记录“已体检/适岗”等状态，还是保存体检报告、病症诊断、检查结果、病假就医证明、工伤或生育资料的具体内容？保存后者时应纳入医疗健康信息候选并复核。" },
+  { category: "medical_health", pattern: /患者体征|生命体征|心率|血氧|心电|脉搏|病症|病史|诊断|体检报告|体检结果|职业健康检查|病假证明|就诊|检验报告|检查报告|生育信息|工伤认定|医疗报销|保险理赔|医疗记录|健康档案|病历|处方|用药|不良事件/, reasoning: "用户填写的信息中出现了疾病、患者体征、检查、就诊、工伤、生育、医疗报销或保险理赔资料。", question: "请区分：是否仅记录一般业务状态，还是保存患者体征、体检报告、病症诊断、检查结果、病假就医证明、工伤或生育资料的具体内容？保存后者时应纳入医疗健康信息候选并复核。" },
   { category: "financial_account", pattern: /银行账户|银行账号|银行卡号|工资卡|工资明细|工资单|薪酬明细|薪资明细|支付账号|证券账户|基金账户|保险账户|公积金账户|账户鉴别信息|支付密码|收入明细/, reasoning: "描述中出现了金融账户、账户鉴别信息或个人收入明细。", question: "请确认是否保存工资卡或其他账户号码、账户鉴别信息，或者可反映个人收入状况的工资和薪酬明细，而不只是工资发放是否完成。" },
   { category: "location_trajectory", pattern: /精准定位|精确位置|实时位置|连续定位|GPS|行踪轨迹|活动轨迹|车辆轨迹|定位权限/, reasoning: "描述中出现了精准位置、连续定位或活动轨迹。", question: "位置精度和采集频率是否足以定位个人，或形成连续活动轨迹？" },
-  { category: "other_sensitive", pattern: /身份证照片|身份证正反面|身份证复印件|证件影像|征信|信用报告|犯罪记录|性取向|性生活|私密部位/, reasoning: "描述中出现了标准列明或可能符合危害后果标准的其他敏感信息。", question: "请确认是否实际留存身份证件影像、征信或其他资料内容，而不只是现场核验后记录核验结果。" }
+  { category: "other_sensitive", pattern: /身份证照片|身份证正反面|身份证复印件|证件影像|(?<!体)征信(?:报告|记录|查询|评分|信息)?|信用报告|犯罪记录|性取向|性生活|私密部位/, reasoning: "用户填写的信息中出现了标准列明或可能符合危害后果标准的其他敏感信息。", question: "请确认是否实际留存身份证件影像、征信或其他资料内容，而不只是现场核验后记录核验结果。" }
 ];
 
 const textList = (value: unknown, maxItems = 30, maxLength = 100): string[] => Array.isArray(value)
@@ -97,7 +97,8 @@ export function prepareSensitiveIdentificationInput(value: SensitiveIdentificati
   const sanitized: SensitiveIdentificationInput = {
     scenarioCode: textValue(value.scenarioCode, 100),
     scenarioName: textValue(value.scenarioName, 200),
-    scenarioDescription: textValue(value.scenarioDescription, 1000),
+    // 系统预设的场景说明只用于界面导航，不能作为识别敏感个人信息的事实证据。
+    scenarioDescription: "",
     dataSubjects: textList(value.dataSubjects),
     informationTypes: textList(value.informationTypes),
     informationDetails: textValue(value.informationDetails, 1500),
@@ -106,7 +107,7 @@ export function prepareSensitiveIdentificationInput(value: SensitiveIdentificati
     minorsInvolved: ["yes", "no", "unknown"].includes(String(value.minorsInvolved)) ? value.minorsInvolved : ""
   };
   let redactionCount = 0;
-  for (const key of ["scenarioDescription", "informationDetails"] as const) {
+  for (const key of ["informationDetails"] as const) {
     const redacted = redactText(sanitized[key]);
     sanitized[key] = redacted.text;
     redactionCount += redacted.count;
@@ -115,7 +116,8 @@ export function prepareSensitiveIdentificationInput(value: SensitiveIdentificati
 }
 
 export function runSensitiveIdentificationRules(input: SensitiveIdentificationInput): Pick<SensitiveIdentificationResult, "candidates" | "questions" | "boundaryObservations"> {
-  const searchable = [input.scenarioDescription, input.informationDetails, ...input.informationTypes].filter(Boolean).join("；");
+  // 只使用用户实际选择或填写的事实；不把系统预设场景名称、说明和系统名称当作证据。
+  const searchable = [...input.dataSubjects, ...input.informationTypes, input.informationDetails, ...input.purposes].filter(Boolean).join("；");
   const candidates: SensitiveCandidate[] = [];
   for (const rule of ruleDefinitions) {
     const match = searchable.match(rule.pattern);

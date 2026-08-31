@@ -4,8 +4,16 @@ import { createDocument, getEnterprise, listActivities, listDocuments } from "@/
 import { generateMaterialDraft, materialCatalog } from "@/lib/materials";
 import { incompatibleActivities } from "@/lib/material-audience";
 import { generateCompleteMaterialDraft } from "@/lib/material-ai";
+import { findExternalContentQualityRisks } from "@/lib/document-publication";
 
 export const runtime = "nodejs";
+
+function friendlyAiFallbackReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  if (/配置|密钥|服务/.test(message)) return "当前AI服务配置不可用，系统已安全改用基础模板";
+  if (/timeout|超时|abort/i.test(message)) return "AI生成等待超时，系统已安全改用基础模板";
+  return "AI服务暂时未能完成本次生成，系统已安全改用基础模板";
+}
 
 export async function GET() { return NextResponse.json(listDocuments()); }
 
@@ -64,9 +72,11 @@ export async function POST(request: Request) {
       content = aiDraft.content; generationMethod = "ai";
       aiMetadata = { aiProvider: aiDraft.provider, aiModel: aiDraft.model, aiPromptVersion: aiDraft.promptVersion, aiRemoteRunId: aiDraft.remoteRunId, pendingFacts: aiDraft.pendingFacts, aiRedactionCount: aiDraft.redactionCount, aiExcludedFields: aiDraft.excludedFields, aiPreviewConfirmedAt: new Date().toISOString() };
     } catch (error) {
-      aiMetadata = { aiFallbackReason: error instanceof Error ? error.message : "AI服务暂时不可用", aiExcludedFields: parsed.data.excludedAiFields, aiPreviewConfirmedAt: new Date().toISOString() };
+      aiMetadata = { aiFallbackReason: friendlyAiFallbackReason(error), aiExcludedFields: parsed.data.excludedAiFields, aiPreviewConfirmedAt: new Date().toISOString() };
     }
   }
+  const qualityIssues = findExternalContentQualityRisks({ type: parsed.data.type, content, activities, enterprise });
+  aiMetadata.pendingFacts = [...new Set([...(aiMetadata.pendingFacts || []), ...qualityIssues])];
   return NextResponse.json(createDocument({
     name: parsed.data.name,
     type: parsed.data.type,

@@ -61,7 +61,7 @@ const factRequirements: FactRequirement[] = [
   { no: 10, step: 3, label: "保存期限及必要性依据", filled: f => f.retentionPeriod.trim().length > 0 && !assessRetentionRisk(f.retentionPeriod, f.retentionBasis).requiresBasis },
   { no: 11, step: 3, label: "保存期满后怎样处理", filled: f => f.deletionMethod.trim().length > 0 },
   { no: 12, step: 3, label: "个人联系渠道", filled: f => f.rightsChannel.trim().length > 0 },
-  { no: 13, step: 4, label: "是否包含敏感个人信息", filled: f => f.sensitiveInformation !== "" && (f.sensitiveInformation !== "yes" || (f.sensitiveCategories?.length || 0) > 0 || f.minorsInvolved === "yes") },
+  { no: 13, step: 4, label: "敏感信息类别、必要性、权益影响和保护措施", filled: f => f.sensitiveInformation !== "" && (f.sensitiveInformation !== "yes" || ((((f.sensitiveCategories?.length || 0) > 0) || f.minorsInvolved === "yes") && String(f.sensitiveNecessity || "").trim().length >= 8 && String(f.sensitiveRightsImpact || "").trim().length >= 8 && String(f.sensitiveProtectionMeasures || "").trim().length >= 8)) },
   { no: 14, step: 4, label: "是否涉及未成年人", filled: f => f.minorsInvolved !== "" },
   { no: 15, step: 4, label: "是否可能从境外存储或访问", filled: f => f.crossBorderAccess !== "" },
   { no: 16, step: 4, label: "是否有自动化决策", filled: f => f.automatedDecision !== "" }
@@ -187,7 +187,12 @@ export default function BusinessPage() {
       externalRecipientDetails: activity.facts.externalRecipientDetails || "",
       accessRoles: [...activity.facts.accessRoles], systemOperators: [...activity.facts.systemOperators],
       sensitiveCategories: [...(activity.facts.sensitiveCategories || [])],
-      rightsChannel: activity.facts.rightsChannel || defaultRightsChannel
+      rightsChannel: !activity.facts.rightsChannel || (
+        enterprise?.privacyContactChannel
+        && enterprise.publicContactChannel
+        && enterprise.privacyContactChannel !== enterprise.publicContactChannel
+        && activity.facts.rightsChannel === enterprise.privacyContactChannel
+      ) ? defaultRightsChannel : activity.facts.rightsChannel
     };
     const nextFacts = useScenarioDefaults ? applyScenarioDefaults(editableFacts, activity.scenarioCode) : editableFacts;
     setFacts({ ...nextFacts, externalProcessingRelationships: nextFacts.externalProcessingRelationships?.length ? nextFacts.externalProcessingRelationships : inferExternalProcessingRelationships(nextFacts.recipients) });
@@ -251,7 +256,8 @@ export default function BusinessPage() {
       body: JSON.stringify({
         scenarioCode: editing.scenarioCode,
         scenarioName: editing.name,
-        scenarioDescription: editing.description,
+        // 场景预设说明不是实际处理事实，不能拿来触发敏感信息结论。
+        scenarioDescription: "",
         dataSubjects: facts.dataSubjects,
         informationTypes: facts.informationTypes,
         informationDetails: facts.informationDetails || "",
@@ -494,7 +500,13 @@ export default function BusinessPage() {
               </div>}
             </div>
             <div className="sensitive-category-grid">{sensitiveCategoryDefinitions.map(item => <button type="button" className={(facts.sensitiveCategories || []).includes(item.code) ? "selected" : ""} key={item.code} onClick={() => toggleSensitiveCategory(item.code)}><span>{(facts.sensitiveCategories || []).includes(item.code) && <CheckCircle2 size={14} />}<strong>{item.label}</strong></span><small>{item.examples}</small><em>{item.boundary}</em></button>)}</div>
-            <div className="segmented sensitive-result"><button type="button" className={facts.sensitiveInformation === "no" ? "selected" : ""} onClick={() => setFacts(current => ({ ...current, sensitiveCategories: [], sensitiveInformation: "no" }))}>确认均不涉及</button><button type="button" className={facts.sensitiveInformation === "unknown" ? "selected" : ""} onClick={() => setFacts(current => ({ ...current, sensitiveCategories: [], sensitiveInformation: "unknown" }))}>暂不清楚，交负责人确认</button></div>
+            <div className="segmented sensitive-result"><button type="button" className={facts.sensitiveInformation === "no" ? "selected" : ""} onClick={() => setFacts(current => ({ ...current, sensitiveCategories: [], sensitiveInformation: "no", sensitiveNecessity: "", sensitiveRightsImpact: "", sensitiveProtectionMeasures: "" }))}>确认均不涉及</button><button type="button" className={facts.sensitiveInformation === "unknown" ? "selected" : ""} onClick={() => setFacts(current => ({ ...current, sensitiveCategories: [], sensitiveInformation: "unknown", sensitiveNecessity: "", sensitiveRightsImpact: "", sensitiveProtectionMeasures: "" }))}>暂不清楚，交负责人确认</button></div>
+            {facts.sensitiveInformation === "yes" && <div className="sensitive-fact-details">
+              <div className="alert warning"><AlertTriangle size={16} /><div><strong>请把判断落到本业务的实际事实</strong><p>以下三项会进入材料正文和发布前检查。不要只写“用于业务需要”或笼统列举法律名称。</p></div></div>
+              <label><span>处理这些敏感个人信息为什么充分必要？ <b>必填</b></span><textarea className="fact-input fact-notes" aria-invalid={String(facts.sensitiveNecessity || "").trim().length < 8} value={facts.sensitiveNecessity || ""} onChange={event => setFacts(current => ({ ...current, sensitiveNecessity: event.target.value }))} placeholder="例如：员工商业保险理赔必须向保险机构提交诊断证明；仅记录一般请假状态无法完成理赔，本业务不收集与理赔无关的完整病历" /><small>请写清“具体类别或字段—处理目的—为何无法用更少或非敏感信息替代”；依据法定义务时，请说明适用事项。</small></label>
+              <label><span>可能对个人权益造成什么具体影响？ <b>必填</b></span><textarea className="fact-input fact-notes" aria-invalid={String(facts.sensitiveRightsImpact || "").trim().length < 8} value={facts.sensitiveRightsImpact || ""} onChange={event => setFacts(current => ({ ...current, sensitiveRightsImpact: event.target.value }))} placeholder="例如：诊断信息泄露或被超范围使用，可能造成健康隐私暴露、歧视或保险权益受损" /></label>
+              <label><span>已经采取或计划采取哪些严格保护措施？ <b>必填</b></span><textarea className="fact-input fact-notes" aria-invalid={String(facts.sensitiveProtectionMeasures || "").trim().length < 8} value={facts.sensitiveProtectionMeasures || ""} onChange={event => setFacts(current => ({ ...current, sensitiveProtectionMeasures: event.target.value }))} placeholder="例如：仅福利专员可查看，加密传输给保险机构，理赔结束后按约定期限删除附件，每季度复核权限" /></label>
+            </div>}
             {facts.minorsInvolved === "yes" && <div className="alert warning">本业务涉及不满十四周岁未成年人，其全部个人信息依法属于敏感个人信息，系统已自动纳入敏感信息处理路径。</div>}
             <small className="field-help">主要依据：《个人信息保护法》第二十八条；GB/T 45574—2025 第4章、附录A。居民身份证照片属于标准列明项，但普通证件号码或证件核验仍应结合泄露后危害判断；普通照片不等于生物识别，粗略位置不等于精准定位或连续轨迹。</small>
           </section>

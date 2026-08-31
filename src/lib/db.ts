@@ -462,7 +462,8 @@ export function updateTask(id: string, input: {
 
 export function createActivity(input: { scenarioCode: string; name: string; remark?: string; description?: string }): ProcessingActivity {
   const initialFacts = emptyActivityFacts();
-  initialFacts.rightsChannel = getEnterprise().privacyContactChannel;
+  const enterprise = getEnterprise();
+  initialFacts.rightsChannel = enterprise.publicContactChannel || "";
   const item = { id: randomUUID(), scenarioCode: input.scenarioCode, name: input.name, remark: input.remark?.trim() || "", description: input.description || "", status: "draft" as const, completeness: 0.15, facts: initialFacts, createdAt: now() };
   getDb().prepare("INSERT INTO processing_activity (id, scenario_code, name, remark, description, status, completeness, facts_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run(item.id, item.scenarioCode, item.name, item.remark, item.description, item.status, item.completeness, JSON.stringify(item.facts), item.createdAt);

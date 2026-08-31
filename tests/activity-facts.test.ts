@@ -72,7 +72,14 @@ test("不能用笼统的涉及敏感信息替代法定类别确认", () => {
     minorsInvolved: "no" as const, crossBorderAccess: "no" as const
   };
   assert.equal(isActivityReadyForTriage(base), false);
-  assert.equal(isActivityReadyForTriage({ ...base, sensitiveCategories: ["medical_health"] }), true);
+  assert.equal(isActivityReadyForTriage({ ...base, sensitiveCategories: ["medical_health"] }), false);
+  assert.equal(isActivityReadyForTriage({
+    ...base,
+    sensitiveCategories: ["medical_health"],
+    sensitiveNecessity: "体检结果用于确认岗位健康要求，无法由一般状态替代",
+    sensitiveRightsImpact: "泄露可能造成健康隐私暴露或不当歧视",
+    sensitiveProtectionMeasures: "仅职业健康经办人员访问，加密保存并按期删除"
+  }), true);
 });
 
 test("不满十四周岁个人信息自动归入敏感个人信息路径", () => {

@@ -37,6 +37,18 @@ test("员工体检、工伤和薪酬明细使用可执行的确认问题", () =>
   assert.match(finance?.question || "", /工资卡|账户号码/);
 });
 
+test("患者体征识别为医疗健康信息且不会把体征信息误判成征信", () => {
+  const result = runSensitiveIdentificationRules({ ...input, scenarioDescription: "征信查询是场景预设说明", informationTypes: ["其他信息"], informationDetails: "患者体征信息、心率和血氧读数" });
+  assert.ok(result.candidates.some(item => item.category === "medical_health"));
+  assert.ok(!result.candidates.some(item => item.category === "other_sensitive"));
+});
+
+test("系统预设场景说明不作为敏感信息识别证据", () => {
+  const prepared = prepareSensitiveIdentificationInput({ ...input, scenarioDescription: "需要查询征信报告", informationTypes: ["姓名和联系方式"], informationDetails: "" });
+  assert.equal(prepared.input.scenarioDescription, "");
+  assert.ok(!runSensitiveIdentificationRules(prepared.input).candidates.some(item => item.category === "other_sensitive"));
+});
+
 test("发送AI前遮蔽疑似真实个人信息值", () => {
   const result = prepareSensitiveIdentificationInput({
     ...input,

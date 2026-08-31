@@ -8,6 +8,7 @@ const enterprise: EnterpriseProfile = {
   ownership: "外商投资企业", processingRole: "个人信息处理者", personCount: 120, countVerified: true,
   subjectCategories: ["客户联系人"], sensitiveCategories: [], minorsPossible: "no", crossBorder: "no",
   privacyContactName: "张负责人", privacyContactRole: "行政负责人", privacyContactChannel: "privacy@example.com",
+  publicContactDepartment: "个人信息保护联系部门", publicContactChannel: "privacy@example.com",
   qualificationStatus: "eligible", qualificationSummary: "适用小型处理者路径", onboardingCompleted: true, updatedAt: "2026-08-09T00:00:00.000Z"
 };
 
@@ -34,6 +35,20 @@ test("B2B联系人告知会带入已确认企业和业务事实", () => {
   assert.match(result, /姓名和联系方式/);
   assert.match(result, /合作期间，结束后保留3年/);
   assert.match(result, /privacy@example.com/);
+  assert.match(result, /处理方式：/);
+  assert.doesNotMatch(result, /可访问岗位：|系统运维方：|保存或使用位置：/);
+});
+
+test("对外材料优先使用具体字段并清除其他信息占位分类", () => {
+  const detailedActivity: ProcessingActivity = {
+    ...activity,
+    facts: { ...activity.facts, informationTypes: ["姓名和联系方式", "其他信息"], informationDetails: "姓名、手机号、产品序列号、不良事件描述和诊断结论" }
+  };
+  const result = generateMaterialDraft({
+    type: "privacy_notice", name: "隐私政策", scope: "患者售后服务", audience: "患者或产品使用者", enterprise, activities: [detailedActivity]
+  });
+  assert.match(result, /姓名、手机号、产品序列号、不良事件描述和诊断结论/);
+  assert.doesNotMatch(result, /使用的个人信息：[^\n]*其他信息/);
 });
 
 test("处理活动清单按场景输出信息、目的、系统和接收方", () => {
@@ -60,6 +75,29 @@ test("材料按法定类别输出敏感个人信息，不回退为普通信息�
   });
   assert.match(result, /金融账户信息/);
   assert.doesNotMatch(result, /姓名和联系方式、单位和职务/);
+});
+
+test("对外材料只使用公开联系渠道并带入已确认的敏感信息说明", () => {
+  const sensitiveActivity: ProcessingActivity = {
+    ...activity,
+    facts: {
+      ...activity.facts,
+      rightsChannel: "internal-owner@example.com",
+      sensitiveInformation: "yes",
+      sensitiveCategories: ["medical_health"],
+      sensitiveNecessity: "处理诊断证明是完成保险理赔所必需",
+      sensitiveRightsImpact: "泄露可能造成健康隐私暴露和歧视",
+      sensitiveProtectionMeasures: "仅福利专员访问，加密传输并按期删除"
+    }
+  };
+  const result = generateMaterialDraft({
+    type: "employee_notice", name: "员工个人信息告知", scope: "员工福利",
+    audience: "员工", enterprise: { ...enterprise, privacyContactChannel: "internal-owner@example.com", publicContactChannel: "rights@example.com" }, activities: [sensitiveActivity]
+  });
+  assert.match(result, /rights@example\.com/);
+  assert.doesNotMatch(result, /internal-owner@example\.com/);
+  assert.match(result, /完成保险理赔所必需/);
+  assert.match(result, /仅福利专员访问/);
 });
 
 test("员工告知与候选人告知使用不同的处理范围说明", () => {

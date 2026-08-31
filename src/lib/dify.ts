@@ -200,10 +200,14 @@ export function runLocalScenarioTriage(context: TriageContext, warning: string):
   if (enterprise.crossBorder !== "no" || facts.crossBorderAccess !== "no") findings.push({ title: "确认境外访问情况", description: "请确认信息是否存到境外，或被境外团队、供应商、管理员远程查看。", riskLevel: facts.crossBorderAccess === "yes" ? "L3" : "L2" });
   if ((Array.isArray(enterprise.sensitiveCategories) && enterprise.sensitiveCategories.length > 0) || facts.sensitiveInformation !== "no") {
     const categories = Array.isArray(facts.sensitiveCategories) ? facts.sensitiveCategories.map(value => aiLabels[String(value)] || String(value)) : [];
+    const necessityReady = String(facts.sensitiveNecessity || "").trim().length >= 8;
+    const impactReady = String(facts.sensitiveRightsImpact || "").trim().length >= 8;
+    const measuresReady = String(facts.sensitiveProtectionMeasures || "").trim().length >= 8;
+    const recordedParts = [necessityReady && "必要性", impactReady && "权益影响", measuresReady && "保护措施"].filter(Boolean);
     findings.push({
       title: "复核敏感个人信息",
       description: categories.length
-        ? `已识别类别：${categories.join("、")}。需要进一步确认特定目的、充分必要性、告知同意和严格保护措施。`
+        ? `已识别类别：${categories.join("、")}。${recordedParts.length ? `${recordedParts.join("、")}已填写，待核实与实际流程一致；` : "必要性、权益影响和保护措施尚未完整登记；"}尚需判断处理依据及单独同意要求，并完成个人信息保护影响评估。`
         : facts.minorsInvolved === "yes"
           ? "涉及不满十四周岁未成年人个人信息，依法属于敏感个人信息，需要专项复核。"
           : "法定类别尚未确认，需要先核对具体字段，再确认处理目的、必要性、告知同意和保护措施。",
@@ -226,7 +230,7 @@ export function runLocalScenarioTriage(context: TriageContext, warning: string):
     status: mergedFindings.some(f => f.riskLevel === "L3") ? "needs_review" : mergedFindings.length ? "needs_input" : "draft_ready",
     summary: mergedFindings.length ? `基础规则发现 ${mergedFindings.length} 个需要确认的整改主题。` : "已完成基础规则检查，尚未运行AI快速分流。",
     reviewRequired: mergedFindings.some(f => f.riskLevel === "L3"), findings: mergedFindings,
-    warnings: warning ? [warning] : [],
+    warnings: warning ? ["AI辅助分析暂时不可用，本次已使用本地规则完成基础识别；已填写内容不会丢失，可稍后重新分析。"] : [],
     workflowVersion: "scenario-triage-local-rules-v1"
   };
 }

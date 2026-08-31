@@ -29,6 +29,9 @@ export const emptyActivityFacts = (): ActivityFacts => ({
   automatedDecision: "",
   sensitiveInformation: "",
   sensitiveCategories: [],
+  sensitiveNecessity: "",
+  sensitiveRightsImpact: "",
+  sensitiveProtectionMeasures: "",
   minorsInvolved: "",
   crossBorderAccess: "",
   notes: "",
@@ -66,6 +69,9 @@ export function normalizeActivityFacts(value: unknown): ActivityFacts {
     automatedDecision: answer(source.automatedDecision),
     sensitiveInformation,
     sensitiveCategories,
+    sensitiveNecessity: String(source.sensitiveNecessity || "").slice(0, 1500),
+    sensitiveRightsImpact: String(source.sensitiveRightsImpact || "").slice(0, 1500),
+    sensitiveProtectionMeasures: String(source.sensitiveProtectionMeasures || "").slice(0, 1500),
     minorsInvolved,
     crossBorderAccess: answer(source.crossBorderAccess),
     notes: String(source.notes || "").slice(0, 2000),
@@ -91,7 +97,12 @@ export function activityFactsCompleteness(facts: ActivityFacts): number {
     facts.deletionMethod.trim().length > 0,
     facts.rightsChannel.trim().length > 0,
     facts.automatedDecision !== "",
-    facts.sensitiveInformation !== "" && (facts.sensitiveInformation !== "yes" || (facts.sensitiveCategories?.length || 0) > 0 || facts.minorsInvolved === "yes"),
+    facts.sensitiveInformation !== "" && (facts.sensitiveInformation !== "yes" || (
+      ((facts.sensitiveCategories?.length || 0) > 0 || facts.minorsInvolved === "yes")
+      && String(facts.sensitiveNecessity || "").trim().length >= 8
+      && String(facts.sensitiveRightsImpact || "").trim().length >= 8
+      && String(facts.sensitiveProtectionMeasures || "").trim().length >= 8
+    )),
     facts.minorsInvolved !== "",
     facts.crossBorderAccess !== ""
   ];

@@ -82,6 +82,9 @@ const fieldDefinitions: Array<Omit<MaterialAiFieldOption, "included">> = [
   { code: "activity.automatedDecision", group: "业务信息", label: "自动化决策情况", description: "该业务是否涉及自动化决策。" },
   { code: "activity.sensitiveInformation", group: "业务信息", label: "敏感个人信息情况", description: "该业务是否涉及敏感个人信息。" },
   { code: "activity.sensitiveCategories", group: "业务信息", label: "敏感个人信息法定类别", description: "依据《个人信息保护法》第二十八条识别，并参照 GB/T 45574—2025 细化的类别。" },
+  { code: "activity.sensitiveNecessity", group: "业务信息", label: "敏感信息处理必要性", description: "用户逐项确认的不可替代性和最小必要事实。" },
+  { code: "activity.sensitiveRightsImpact", group: "业务信息", label: "敏感信息权益影响", description: "用户确认的泄露、滥用或错误处理可能造成的具体影响。" },
+  { code: "activity.sensitiveProtectionMeasures", group: "业务信息", label: "敏感信息严格保护措施", description: "用户确认的权限、加密、传输、期限或复核等措施。" },
   { code: "activity.minorsInvolved", group: "业务信息", label: "未成年人情况", description: "该业务是否涉及不满十四周岁未成年人。" },
   { code: "activity.crossBorderAccess", group: "业务信息", label: "境外存储或访问", description: "该业务是否存在境外存储或访问。" },
   { code: "activity.notes", group: "业务信息", label: "自由填写的补充说明", description: "可能包含不必要的具体信息，默认不发送。" },
@@ -98,6 +101,7 @@ function defaultExcludedFields(definition: MaterialDefinition): string[] {
   const excluded = new Set(alwaysExcluded);
   if (definition.category === "external") {
     excluded.add("activity.accessRoles"); excluded.add("activity.systemOperators");
+    excluded.add("activity.rightsChannel");
   }
   return [...excluded];
 }
@@ -145,6 +149,9 @@ function filteredBaselineDraft(baseline: string, excluded: Set<string>): string 
     "activity.automatedDecision": /^- 自动化决策：.*\r?\n?/gm,
     "activity.sensitiveInformation": /^- 敏感个人信息：.*\r?\n?/gm,
     "activity.sensitiveCategories": /^- 敏感个人信息类别：.*\r?\n?/gm,
+    "activity.sensitiveNecessity": /^- 处理必要性：.*\r?\n?/gm,
+    "activity.sensitiveRightsImpact": /^- 对个人权益的影响：.*\r?\n?/gm,
+    "activity.sensitiveProtectionMeasures": /^- (?:保护措施|已登记的保护安排)：.*\r?\n?/gm,
     "activity.minorsInvolved": /^- 不满十四周岁未成年人：.*\r?\n?/gm,
     "activity.crossBorderAccess": /^- 境外存储或访问：.*\r?\n?/gm
   };
@@ -197,6 +204,9 @@ function rawContext(input: MaterialAiDraftInput, excluded: Set<string>): Record<
     include(excluded, "activity.automatedDecision", "自动化决策", activity.facts.automatedDecision, result);
     include(excluded, "activity.sensitiveInformation", "敏感个人信息", activity.facts.sensitiveInformation, result);
     include(excluded, "activity.sensitiveCategories", "敏感个人信息法定类别", sensitiveCategoryLabels(activity.facts.sensitiveCategories), result);
+    include(excluded, "activity.sensitiveNecessity", "敏感个人信息处理必要性", activity.facts.sensitiveNecessity, result);
+    include(excluded, "activity.sensitiveRightsImpact", "敏感个人信息对个人权益的影响", activity.facts.sensitiveRightsImpact, result);
+    include(excluded, "activity.sensitiveProtectionMeasures", "敏感个人信息严格保护措施", activity.facts.sensitiveProtectionMeasures, result);
     include(excluded, "activity.minorsInvolved", "不满十四周岁未成年人", activity.facts.minorsInvolved, result);
     include(excluded, "activity.crossBorderAccess", "境外存储或访问", activity.facts.crossBorderAccess, result);
     include(excluded, "activity.notes", "补充说明", activity.facts.notes, result);

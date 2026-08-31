@@ -20,6 +20,9 @@ const factLabels: Record<keyof ActivityFacts, string> = {
   automatedDecision: "自动化决策",
   sensitiveInformation: "敏感个人信息",
   sensitiveCategories: "敏感个人信息法定类别",
+  sensitiveNecessity: "敏感个人信息处理必要性",
+  sensitiveRightsImpact: "敏感个人信息对个人权益的影响",
+  sensitiveProtectionMeasures: "敏感个人信息严格保护措施",
   minorsInvolved: "不满十四周岁未成年人",
   crossBorderAccess: "境外存储或访问",
   notes: "业务补充说明",
@@ -46,6 +49,9 @@ const sectionMap: Partial<Record<keyof ActivityFacts, string[]>> = {
   automatedDecision: ["自动化决策"],
   sensitiveInformation: ["敏感个人信息"],
   sensitiveCategories: ["敏感个人信息"],
+  sensitiveNecessity: ["敏感个人信息"],
+  sensitiveRightsImpact: ["敏感个人信息"],
+  sensitiveProtectionMeasures: ["敏感个人信息", "保存和安全"],
   minorsInvolved: ["不满十四周岁未成年人"],
   crossBorderAccess: ["向境外提供个人信息"]
 };
