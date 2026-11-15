@@ -16,7 +16,13 @@ export interface ImportedFilePreview {
   extractionMethod: "plain_text" | "html_text" | "docx_xml" | "manual_required";
   requiresManualText: boolean;
   notice: string;
+  suggestedTitle: string | null;
 }
+
+const cleanSuggestedTitle = (value: string | undefined) => {
+  const title = String(value || "").replace(/\s+/g, " ").trim().slice(0, 120);
+  return title.length >= 2 ? title : null;
+};
 
 const decodeEntities = (value: string) => value
   .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
@@ -99,15 +105,24 @@ export function previewImportedFile(fileName: string, mimeType: string, buffer: 
   if (extension === ".pdf" && buffer.subarray(0, 5).toString("ascii") !== "%PDF-") throw new Error("PDF_INVALID");
 
   let content = "";
+  let suggestedTitle: string | null = null;
   let extractionMethod: ImportedFilePreview["extractionMethod"] = "plain_text";
-  if ([".txt", ".md"].includes(extension)) content = normalizeText(buffer.toString("utf8"));
-  else if ([".html", ".htm"].includes(extension)) { content = extractHtmlText(buffer.toString("utf8")); extractionMethod = "html_text"; }
+  if ([".txt", ".md"].includes(extension)) {
+    const source = buffer.toString("utf8");
+    content = normalizeText(source);
+    if (extension === ".md") suggestedTitle = cleanSuggestedTitle(source.match(/^#\s+(.+)$/m)?.[1]);
+  }
+  else if ([".html", ".htm"].includes(extension)) {
+    const source = buffer.toString("utf8");
+    content = extractHtmlText(source); extractionMethod = "html_text";
+    suggestedTitle = cleanSuggestedTitle(source.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1]?.replace(/<[^>]+>/g, "") || source.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1]);
+  }
   else if (extension === ".docx") { content = extractDocxText(buffer); extractionMethod = "docx_xml"; }
   else extractionMethod = "manual_required";
 
   return {
     fileName: safeName, mimeType: mimeType || "application/octet-stream", byteSize: buffer.length,
-    contentHash: createHash("sha256").update(buffer).digest("hex"), extension, content, extractionMethod,
+    contentHash: createHash("sha256").update(buffer).digest("hex"), extension, content, extractionMethod, suggestedTitle,
     requiresManualText: extractionMethod === "manual_required",
     notice: extractionMethod === "manual_required"
       ? "PDF 原件将完整保留。当前版本请粘贴或补充可编辑正文后再导入。"

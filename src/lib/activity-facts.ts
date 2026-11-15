@@ -2,7 +2,7 @@ import type { ActivityFacts } from "./types";
 import { normalizeSensitiveCategoryCodes } from "./sensitive-info.ts";
 import { assessRetentionRisk } from "./retention-risk.ts";
 import { activityOptionGroups } from "./scenario-guidance.ts";
-import { hasExternalRecipient, normalizedExternalProcessingRelationships } from "./external-processing.ts";
+import { hasExternalRecipient, hasMeaningfulExternalRecipientDetails, normalizedExternalProcessingRelationships } from "./external-processing.ts";
 
 export function hasRequiredInformationTypeDetail(facts: Pick<ActivityFacts, "informationTypes">): boolean {
   if (!facts.informationTypes.includes("其他信息")) return facts.informationTypes.length > 0;
@@ -82,7 +82,7 @@ export function normalizeActivityFacts(value: unknown): ActivityFacts {
 export function activityFactsCompleteness(facts: ActivityFacts): number {
   const externalRelationships = normalizedExternalProcessingRelationships(facts);
   const externalRecipientReady = !hasExternalRecipient(facts) || (externalRelationships.length > 0
-    && (externalRelationships.includes("unknown") || String(facts.externalRecipientDetails || "").trim().length >= 5));
+    && (externalRelationships.includes("unknown") || hasMeaningfulExternalRecipientDetails(facts.externalRecipientDetails)));
   const checks = [
     facts.dataSubjects.length > 0,
     hasRequiredInformationTypeDetail(facts),
@@ -93,7 +93,8 @@ export function activityFactsCompleteness(facts: ActivityFacts): number {
     facts.approximatePersonCount !== null,
     facts.accessRoles.length > 0,
     facts.systemOperators.length > 0,
-    facts.retentionPeriod.trim().length > 0 && !assessRetentionRisk(facts.retentionPeriod, facts.retentionBasis).requiresBasis,
+    facts.retentionPeriod.trim().length > 0 && String(facts.retentionBasis || "").trim().length >= 4
+      && !assessRetentionRisk(facts.retentionPeriod, facts.retentionBasis).requiresBasis,
     facts.deletionMethod.trim().length > 0,
     facts.rightsChannel.trim().length > 0,
     facts.automatedDecision !== "",

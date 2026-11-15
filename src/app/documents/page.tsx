@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge } from "@/components/StatusBadge";
 import { materialCatalog, materialRequirementName, materialTypeName, type MaterialCategory } from "@/lib/materials";
 import { activityMatchesAudience, classifyActivityAudienceGroups, materialAudienceName, materialAudienceOptions } from "@/lib/material-audience";
-import { findDocumentPublicationRisks } from "@/lib/document-publication";
+import { activeDocumentPendingFacts, findDocumentPublicationRisks } from "@/lib/document-publication";
 import { activityDisplayName } from "@/lib/activity-label";
 import type { AuditInstance, BusinessDocument, DocumentChangeImpact, DocumentVersion, EnterpriseProfile, MaterialAudienceGroup, PipiaInstance, ProcessingActivity, TaskItem } from "@/lib/types";
 
@@ -34,7 +34,7 @@ type MaterialAiPreview = {
 };
 type ImportPreview = {
   fileName: string; mimeType: string; byteSize: number; contentHash: string; extension: string;
-  content: string; extractionMethod: string; requiresManualText: boolean; notice: string;
+  content: string; extractionMethod: string; requiresManualText: boolean; notice: string; suggestedTitle: string | null;
 };
 
 function buildLineDiff(before: string, after: string) {
@@ -63,6 +63,7 @@ function publicationRiskAction(risk: string): { href: string; label: string } | 
 
 export default function DocumentsPage() {
   const [documents, setDocuments] = useState<BusinessDocument[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activities, setActivities] = useState<ProcessingActivity[]>([]);
   const [audits, setAudits] = useState<AuditInstance[]>([]);
   const [pipias, setPipias] = useState<PipiaInstance[]>([]);
@@ -144,6 +145,8 @@ export default function DocumentsPage() {
       setSelected(current => docs.find((item: BusinessDocument) => item.id === (preferredId || current?.id)) || docs[0] || null);
     } catch {
       setError("暂时无法读取材料数据，请稍后刷新页面。");
+    } finally {
+      setLoading(false);
     }
   };
   useEffect(() => { void load(); }, []);
@@ -157,6 +160,15 @@ export default function DocumentsPage() {
   const effectiveMinorRuleActivityIds = documents.filter(item => item.type === "minor_notice" && item.currentVersionId).flatMap(item => item.activityIds);
   const blockingTaskRisks = selected ? tasks.filter(task => selected.activityIds.includes(task.activityId || "") && task.status !== "completed" && task.priority === "high" && (task.sourceType === "assessment_finding" || task.category === "影响评估")).map(task => `发布前待办未完成：${task.title}`) : [];
   const publicationRisks = selected ? findDocumentPublicationRisks(selected, activities, blockingTaskRisks, { content: workflow?.version.content || activeRevision?.content || "", signedPipiaActivityIds, effectiveMinorRuleActivityIds, enterprise: enterprise || undefined }) : [];
+  const activePendingFacts = selected ? activeDocumentPendingFacts(selected, activeRevision?.content || selected.currentVersion?.content || selected.versions?.[0]?.content || "") : [];
+  const resolvePendingFact = async (pendingFact: string) => {
+    if (!selected || !window.confirm(`请确认已经根据实际业务核对以下事项：\n\n${pendingFact}`)) return;
+    setBusy(true); setError("");
+    const response = await fetch(`/api/documents/${selected.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resolvePendingFact: pendingFact }) });
+    const payload = await response.json();
+    if (response.ok) await load(selected.id); else setError(payload.message || "暂时无法确认该事项。");
+    setBusy(false);
+  };
   const compareVersions = selected?.versions || [];
   const left = compareVersions.find(version => version.id === compareIds[0]) || compareVersions[compareVersions.length - 1];
   const right = compareVersions.find(version => version.id === compareIds[1]) || compareVersions[0];
@@ -202,9 +214,9 @@ export default function DocumentsPage() {
     setActivityIds(current => [...current, activity.id]);
   };
 
-  const create = async (aiPreviewConfirmed = false) => {
+  const create = async (aiPreviewConfirmed = false, allowDuplicate = false) => {
     setBusy(true); setError("");
-    const response = await fetch("/api/documents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, scope, type, audienceGroup, audience, description, activityIds, audienceOverrideActivityIds, generationMode, excludedAiFields: aiPreview?.excludedFields || [], aiPreviewConfirmed }) });
+    const response = await fetch("/api/documents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, scope, type, audienceGroup, audience, description, activityIds, audienceOverrideActivityIds, generationMode, excludedAiFields: aiPreview?.excludedFields || [], aiPreviewConfirmed, allowDuplicate }) });
     const payload = await response.json();
     if (response.ok) {
       const created = payload as BusinessDocument;
@@ -216,6 +228,14 @@ export default function DocumentsPage() {
         setEditor({ mode: "edit", versionId: draft.id, justCreated: true });
       }
       void load(created.id);
+    }
+    else if (response.status === 409 && payload.code === "DUPLICATE_DOCUMENT") {
+      setBusy(false);
+      const existing = payload.duplicates?.[0];
+      const createAnother = window.confirm(`相同类型、人群和业务范围下已有草稿“${existing?.name || "未命名材料"}”。\n\n确定仍要新建吗？`);
+      if (createAnother) await create(aiPreviewConfirmed, true);
+      else if (existing?.id) { setCreating(false); setAiPreview(null); await load(existing.id); }
+      return;
     }
     else setError(payload.message || "生成材料失败，请稍后重试。");
     setBusy(false);
@@ -240,7 +260,7 @@ export default function DocumentsPage() {
     const payload = await response.json();
     if (response.ok) {
       setImportPreview(payload); setImportContent(payload.content || "");
-      setImportName(file.name.replace(/\.(txt|md|html?|docx|pdf)$/i, ""));
+      setImportName(payload.suggestedTitle || file.name.replace(/\.(txt|md|html?|docx|pdf)$/i, ""));
     } else setError(payload.message || "文件读取失败，请重新选择。");
     setBusy(false);
   };
@@ -364,6 +384,8 @@ export default function DocumentsPage() {
   const uncoveredGroups = audienceCoverage.filter(item => item.uncoveredCount > 0);
   const hasActionItems = needsConfirmDocs.length > 0 || draftDocs.length > 0 || uncoveredGroups.length > 0;
 
+  if (loading) return <div className="loading"><RefreshCw className="spin" /> 正在读取材料与版本记录…</div>;
+
   return <>
     <section className="page-heading"><div><p className="eyebrow">合规材料</p><h1>材料版本中心</h1><p>生成或导入已有材料，核对草稿后发布；业务变化时提示更新，同时保留历史版本、原文件和发布记录。</p></div><div className="heading-actions"><button className="button secondary" onClick={openImport}><UploadCloud size={17} /> 导入已有材料</button><button className="button primary" onClick={() => openCreate()}><Plus size={17} /> 生成材料</button></div></section>
     {hasActionItems && <section className="action-items">
@@ -376,7 +398,7 @@ export default function DocumentsPage() {
     {documents.length ? <div className="document-layout lifecycle-layout"><div className="document-list">{documents.map(document => <button key={document.id} className={selected?.id === document.id ? "document-row selected" : "document-row"} onClick={() => chooseDocument(document)}><div className="doc-icon"><FileText /></div><div><strong>{document.name}</strong><span>{materialAudienceName(document.audienceGroup)} · {materialTypeName(document.type)}</span><small>{document.currentVersion ? `${document.currentVersion.versionNumber} 当前有效` : "尚未发布"} · {healthText[document.healthStatus]}</small></div><StatusBadge status={document.healthStatus} /></button>)}</div><div className="document-detail lifecycle-detail">{selected ? <>
       <div className="detail-header"><div><p className="eyebrow">{materialAudienceName(selected.audienceGroup)} · {materialTypeName(selected.type)} · {healthText[selected.healthStatus]}</p><h2>{selected.name}</h2><p>具体适用对象：{selected.audience || selected.scope}</p></div><div className="detail-header-actions">{activeRevision?.status === "draft" ? <button className="button secondary" onClick={() => openRevision(activeRevision)}><FileClock size={16} /> 继续编辑草稿</button> : !activeRevision && <button className="button secondary" onClick={() => openRevision()}><FilePlus2 size={16} /> 准备新版本</button>}{!selected.currentVersionId && !(selected.versions || []).some(version => version.publishedAt) && <button className="button danger secondary" disabled={busy} onClick={() => setConfirmingDelete(true)}><Trash2 size={15} /> 删除材料</button>}</div></div>
       {selected.metadata?.aiFallbackReason && <div className="material-health-alert"><AlertTriangle /><div><strong>本次已使用基础模板</strong><p>AI完整草稿暂未生成：{selected.metadata.aiFallbackReason}。现有草稿仍可编辑和发布，也可以在配置恢复后重新生成。</p></div></div>}
-      {!!selected.metadata?.pendingFacts?.length && <div className="material-health-alert"><AlertTriangle /><div><strong>AI标记了发布前待确认事项</strong><p>{selected.metadata.pendingFacts.join("；")}</p></div></div>}
+      {activePendingFacts.length > 0 && <div className="material-health-alert"><AlertTriangle /><div><strong>AI 标记了发布前待确认事项</strong>{activePendingFacts.map(item => <p key={item}>{item} <button className="text-link" disabled={busy} onClick={() => void resolvePendingFact(item)}>已核对并确认</button></p>)}</div></div>}
       {selected.reviewReason && <div className="material-health-alert"><AlertTriangle /><div><strong>业务变化后需要确认这份材料</strong><p>{selected.reviewReason}</p></div></div>}
       <nav className="document-tabs">{(["overview", "versions", "records"] as DetailTab[]).map(item => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{({ overview: "当前概况", versions: "版本与对比", records: "记录与依据" } as Record<DetailTab, string>)[item]}</button>)}</nav>
       {!!selected.attachments?.length && tab === "overview" && <div className="imported-source-card"><FileText /><div><strong>导入原文件</strong><span>{selected.attachments[0].fileName} · {(selected.attachments[0].byteSize / 1024).toFixed(1)} KB</span><small>SHA-256：{selected.attachments[0].contentHash.slice(0, 16)}…</small></div><a className="button secondary small" href={`/api/documents/${selected.id}/attachments/${selected.attachments[0].id}`}>下载原文件</a></div>}

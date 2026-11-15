@@ -115,6 +115,7 @@ function systemPrompt(): string {
 - 输入中的【单位名称】、【联系渠道】、【本地脱敏字段1】等占位符是本机脱敏标记；需要使用时必须逐字保留，不得猜测、改写或展开。系统会在本机交付草稿前恢复真实值。
 - 同一材料可以覆盖输入中的多项业务，但不得扩大到未输入的业务或其他人群。
 - 保留基础模板中的必要章节和主要法规边界，可改善结构、合并重复内容并改写为自然中文。
+- 对外告知材料的个人权利章节必须完整保留查阅、复制、转移（符合法定条件时）、更正、补充、删除、限制处理、撤回同意、注销账号（如适用）和解释处理规则，以及具体行使渠道。
 - 不得声称企业“已经合规”、已经完成认证或已经履行尚未确认的义务。
 - 使用中国个人信息保护法律语境，不使用 GDPR 的 controller、processor、data subject 或其直译。
 - 只输出一个 JSON 对象，不得输出 Markdown 围栏、解释文字或第二个 JSON。
@@ -134,7 +135,9 @@ function include(excluded: Set<string>, code: string, key: string, value: unknow
 function filteredBaselineDraft(baseline: string, excluded: Set<string>): string {
   const linePatterns: Record<string, RegExp> = {
     "activity.collectionChannels": /^- 信息来源：.*\r?\n?/gm,
-    "activity.informationDetails": /^- 具体字段或资料名称：.*\r?\n?/gm,
+    // 对外基础模板会把“具体字段或资料名称”折叠进“使用的个人信息”。
+    // 不能只删除同名字段行，否则用户取消勾选后，详细字段仍会随基础模板发送给 AI。
+    "activity.informationDetails": /^- (?:具体字段或资料(?:名称)?|使用的个人信息)：.*\r?\n?/gm,
     "activity.systems": /^- 保存或使用位置：.*\r?\n?/gm,
     "activity.recipients": /^- 外部接收方：.*\r?\n?/gm,
     "activity.externalProcessingRelationships": /^- 外部处理关系：.*\r?\n?/gm,
@@ -182,7 +185,8 @@ function rawContext(input: MaterialAiDraftInput, excluded: Set<string>): Record<
 
   const confirmedActivities = input.activities.map(activity => {
     const result: Record<string, unknown> = {
-      业务名称: activityDisplayName(activity),
+      // remark 是租户内部用于区分同类业务的备注，不应进入对外材料或发给 AI。
+      业务名称: input.definition.category === "external" ? activity.name : activityDisplayName(activity),
       涉及人员: activity.facts.dataSubjects,
       个人信息种类: activity.facts.informationTypes,
       处理目的: activity.facts.purposes
@@ -295,6 +299,21 @@ function restoreValues(value: string, replacements: Replacement[]): string {
   return restored;
 }
 
+export function findMaterialAiFidelityIssues(input: MaterialAiDraftInput, content: string): string[] {
+  const required: Array<[string, string]> = [
+    ["材料名称", input.name],
+    ["适用范围", input.scope],
+    ["适用对象", input.audience],
+    ["单位名称", input.enterprise.legalName]
+  ];
+  for (const activity of input.activities) {
+    required.push([`业务名称“${activity.name}”`, activity.name]);
+    for (const informationType of activity.facts.informationTypes) required.push([`个人信息种类“${informationType}”`, informationType]);
+    for (const purpose of activity.facts.purposes) required.push([`处理目的“${purpose}”`, purpose]);
+  }
+  return [...new Set(required.filter(([, value]) => value.trim().length >= 2 && !content.includes(value.trim())).map(([label]) => label))];
+}
+
 export async function callMaterialDraftAi(
   input: MaterialAiDraftInput,
   config: MaterialAiRuntimeConfiguration,
@@ -328,9 +347,12 @@ export async function callMaterialDraftAi(
   if (maskedContent.length < 200) throw new Error("AI生成的材料正文不完整");
   const missingRequiredToken = transfer.requiredTokens.find(token => !maskedContent.includes(token));
   if (missingRequiredToken) throw new Error("AI未保留必要脱敏占位符，已停止使用该结果");
+  const restoredContent = restoreValues(maskedContent, transfer.replacements);
+  const fidelityIssues = findMaterialAiFidelityIssues(input, restoredContent);
+  if (fidelityIssues.length) throw new Error(`AI草稿未忠实保留已确认输入：${fidelityIssues.slice(0, 6).join("、")}`);
   const maskedPendingFacts = Array.isArray(parsed.pending_facts) ? parsed.pending_facts.map(normalizeChinaLegalText).map(item => item.trim()).filter(Boolean) : [];
   return {
-    content: restoreValues(maskedContent, transfer.replacements),
+    content: restoredContent,
     pendingFacts: maskedPendingFacts.map(item => restoreValues(item, transfer.replacements)),
     summary: restoreValues(String(parsed.summary || "根据已确认企业和业务事实生成完整草稿"), transfer.replacements),
     provider: config.provider,

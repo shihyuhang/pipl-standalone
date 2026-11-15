@@ -23,9 +23,11 @@ test("导入文本和 HTML 时提取可编辑正文并计算文件哈希", () =>
   assert.match(text.content, /隐私政策/);
   assert.equal(text.requiresManualText, false);
   assert.equal(text.contentHash.length, 64);
+  assert.equal(text.suggestedTitle, "隐私政策");
 
   const html = previewImportedFile("policy.html", "text/html", Buffer.from("<h1>隐私政策</h1><script>secret()</script><p>正文内容</p>"));
   assert.equal(html.content, "隐私政策\n正文内容");
+  assert.equal(html.suggestedTitle, "隐私政策");
   assert.doesNotMatch(html.content, /secret/);
 });
 
@@ -40,4 +42,5 @@ test("PDF 保留原件但要求人工补充可编辑正文", () => {
   assert.equal(preview.requiresManualText, true);
   assert.equal(preview.content, "");
   assert.equal(preview.extractionMethod, "manual_required");
+  assert.equal(preview.suggestedTitle, null);
 });

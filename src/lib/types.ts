@@ -204,7 +204,13 @@ export interface DocumentMetadata {
   aiPromptVersion?: string;
   aiRemoteRunId?: string | null;
   aiFallbackReason?: string;
+  /** AI 提出、需要负责人确认的业务事实。 */
+  aiPendingFacts?: string[];
+  /** 生成时发现的正文质量问题，仅用于追溯。 */
+  generatedQualityIssues?: string[];
   pendingFacts?: string[];
+  /** 已由负责人核对确认的待确认事实。 */
+  resolvedPendingFacts?: string[];
   aiRedactionCount?: number;
   aiExcludedFields?: string[];
   aiPreviewConfirmedAt?: string;

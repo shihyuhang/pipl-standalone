@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { deleteDocument, getDocument } from "@/lib/db";
+import { z } from "zod";
+import { deleteDocument, getDocument, resolveDocumentPendingFact } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -7,6 +8,20 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const document = getDocument((await context.params).id);
   if (!document) return NextResponse.json({ message: "材料不存在。" }, { status: 404 });
   return NextResponse.json(document);
+}
+
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
+  const parsed = z.object({ resolvePendingFact: z.string().trim().min(1).max(1000) }).safeParse(await request.json());
+  if (!parsed.success) return NextResponse.json({ message: "请选择需要确认的事项。" }, { status: 400 });
+  try {
+    return NextResponse.json(resolveDocumentPendingFact((await context.params).id, parsed.data.resolvePendingFact));
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    return NextResponse.json(
+      { message: code === "DOCUMENT_NOT_FOUND" ? "材料不存在。" : "该待确认事项已经变化，请刷新后重试。" },
+      { status: code === "DOCUMENT_NOT_FOUND" ? 404 : 409 }
+    );
+  }
 }
 
 export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {

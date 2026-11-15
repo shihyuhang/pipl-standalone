@@ -15,6 +15,13 @@ export function hasExternalRecipient(facts: Pick<ActivityFacts, "recipients">): 
   return facts.recipients.some(item => item !== "不向外部提供");
 }
 
+const unresolvedRecipientDetail = /^(?:不清楚|未知|待确认|待补充|待填写|暂无|没有|无|不详|某单位|外部单位|xx(?:公司|单位|机构)?)[。！!，,；;]*$/i;
+
+export function hasMeaningfulExternalRecipientDetails(value: unknown): boolean {
+  const normalized = String(value || "").trim().replace(/\s+/g, "");
+  return [...normalized].length >= 2 && !unresolvedRecipientDetail.test(normalized);
+}
+
 export function inferExternalProcessingRelationships(recipients: string[]): ExternalProcessingRelationship[] {
   if (!recipients.some(item => item !== "不向外部提供")) return [];
   const values = new Set<ExternalProcessingRelationship>();

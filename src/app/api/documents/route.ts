@@ -5,6 +5,7 @@ import { generateMaterialDraft, materialCatalog } from "@/lib/materials";
 import { incompatibleActivities } from "@/lib/material-audience";
 import { generateCompleteMaterialDraft } from "@/lib/material-ai";
 import { findExternalContentQualityRisks } from "@/lib/document-publication";
+import { findPotentialDuplicateDocuments } from "@/lib/material-consistency";
 
 export const runtime = "nodejs";
 
@@ -12,6 +13,7 @@ function friendlyAiFallbackReason(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
   if (/配置|密钥|服务/.test(message)) return "当前AI服务配置不可用，系统已安全改用基础模板";
   if (/timeout|超时|abort/i.test(message)) return "AI生成等待超时，系统已安全改用基础模板";
+  if (/未忠实保留已确认输入/.test(message)) return "AI草稿遗漏了已确认的名称、适用范围或业务事实，系统已安全改用基础模板";
   return "AI服务暂时未能完成本次生成，系统已安全改用基础模板";
 }
 
@@ -30,7 +32,8 @@ export async function POST(request: Request) {
     modules: z.array(z.string()).optional(),
     generationMode: z.enum(["ai", "template"]).optional().default("template"),
     excludedAiFields: z.array(z.string().max(100)).max(40).optional().default([]),
-    aiPreviewConfirmed: z.boolean().optional().default(false)
+    aiPreviewConfirmed: z.boolean().optional().default(false),
+    allowDuplicate: z.boolean().optional().default(false)
   }).safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ message: "请完成材料类型、适用对象和关联业务的选择。" }, { status: 400 });
 
@@ -56,13 +59,21 @@ export async function POST(request: Request) {
   if (parsed.data.generationMode === "ai" && !parsed.data.aiPreviewConfirmed) {
     return NextResponse.json({ message: "请先预览并确认将发送给AI的内容。" }, { status: 409 });
   }
+  const duplicates = findPotentialDuplicateDocuments(listDocuments(), parsed.data);
+  if (duplicates.length && !parsed.data.allowDuplicate) {
+    return NextResponse.json({
+      code: "DUPLICATE_DOCUMENT",
+      message: "相同材料类型、适用人群和业务范围下已有未完成草稿。",
+      duplicates: duplicates.map(item => ({ id: item.id, name: item.name, generatedAt: item.metadata?.generatedAt || item.updatedAt }))
+    }, { status: 409 });
+  }
 
   const baselineContent = generateMaterialDraft({
     ...parsed.data, enterprise, activities
   });
   let content = baselineContent;
   let generationMethod: "ai" | "template" = "template";
-  let aiMetadata: { aiProvider?: string; aiModel?: string; aiPromptVersion?: string; aiRemoteRunId?: string | null; aiFallbackReason?: string; pendingFacts?: string[]; aiRedactionCount?: number; aiExcludedFields?: string[]; aiPreviewConfirmedAt?: string } = {};
+  let aiMetadata: { aiProvider?: string; aiModel?: string; aiPromptVersion?: string; aiRemoteRunId?: string | null; aiFallbackReason?: string; aiPendingFacts?: string[]; generatedQualityIssues?: string[]; aiRedactionCount?: number; aiExcludedFields?: string[]; aiPreviewConfirmedAt?: string } = {};
   if (parsed.data.generationMode === "ai") {
     try {
       const aiDraft = await generateCompleteMaterialDraft({
@@ -70,13 +81,13 @@ export async function POST(request: Request) {
         definition, enterprise, activities, baselineDraft: baselineContent, excludedFields: parsed.data.excludedAiFields
       });
       content = aiDraft.content; generationMethod = "ai";
-      aiMetadata = { aiProvider: aiDraft.provider, aiModel: aiDraft.model, aiPromptVersion: aiDraft.promptVersion, aiRemoteRunId: aiDraft.remoteRunId, pendingFacts: aiDraft.pendingFacts, aiRedactionCount: aiDraft.redactionCount, aiExcludedFields: aiDraft.excludedFields, aiPreviewConfirmedAt: new Date().toISOString() };
+      aiMetadata = { aiProvider: aiDraft.provider, aiModel: aiDraft.model, aiPromptVersion: aiDraft.promptVersion, aiRemoteRunId: aiDraft.remoteRunId, aiPendingFacts: aiDraft.pendingFacts, aiRedactionCount: aiDraft.redactionCount, aiExcludedFields: aiDraft.excludedFields, aiPreviewConfirmedAt: new Date().toISOString() };
     } catch (error) {
       aiMetadata = { aiFallbackReason: friendlyAiFallbackReason(error), aiExcludedFields: parsed.data.excludedAiFields, aiPreviewConfirmedAt: new Date().toISOString() };
     }
   }
   const qualityIssues = findExternalContentQualityRisks({ type: parsed.data.type, content, activities, enterprise });
-  aiMetadata.pendingFacts = [...new Set([...(aiMetadata.pendingFacts || []), ...qualityIssues])];
+  aiMetadata.generatedQualityIssues = qualityIssues;
   return NextResponse.json(createDocument({
     name: parsed.data.name,
     type: parsed.data.type,

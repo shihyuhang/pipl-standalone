@@ -8,6 +8,21 @@ import { generateMaterialDraft } from "../src/lib/materials.ts";
 
 process.env.PIPL_DATABASE_PATH = join(tmpdir(), `pipl-system-flow-${randomUUID()}.db`);
 
+test("建档草稿保存步骤并可在完成建档后清除", async () => {
+  const db = await import("../src/lib/db.ts");
+  const saved = db.saveOnboardingDraft({
+    form: { legalName: "草稿测试机构", industry: "专业服务" },
+    customSubject: "活动报名人",
+    showCustomSubject: true,
+    step: 2
+  });
+  assert.equal(saved.step, 2);
+  assert.equal(db.getOnboardingDraft()?.form.legalName, "草稿测试机构");
+  assert.equal(db.getOnboardingDraft()?.customSubject, "活动报名人");
+  db.clearOnboardingDraft();
+  assert.equal(db.getOnboardingDraft(), null);
+});
+
 test("完整业务流会自动关闭可由系统核验的任务", async () => {
   const db = await import("../src/lib/db.ts");
   db.updateEnterprise({
@@ -53,6 +68,7 @@ test("完整业务流会自动关闭可由系统核验的任务", async () => {
     accessRoles: ["业务经办人员", "部门负责人"],
     systemOperators: ["本单位系统管理员", "云服务商"],
     retentionPeriod: "合作结束后三年删除",
+    retentionBasis: "合同履行和争议处理需要",
     deletionMethod: "每季度由行政负责人核对并删除到期记录",
     rightsChannel: "privacy@example.test",
     automatedDecision: "no",

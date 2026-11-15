@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { addAuditEvent, updateEnterprise, upsertTask } from "@/lib/db";
-import { assessQualification } from "@/lib/qualification";
+import { addAuditEvent, clearOnboardingDraft, updateEnterprise, upsertTask } from "@/lib/db";
+import { assessQualification, qualificationStatusLabel } from "@/lib/qualification";
 import { sensitiveCategoryCodes } from "@/lib/sensitive-info";
 import { hasCompleteCustomSubjectSelection } from "@/lib/enterprise-subjects";
 
@@ -14,7 +14,7 @@ const schema = z.object({
   subjectCategories: z.array(z.string().trim().min(1).max(306)).min(1).max(20), customSubjectSelected: z.boolean().optional().default(false), sensitiveCategories: z.array(z.enum(sensitiveCategoryCodes)),
   minorsPossible: z.enum(["yes", "no", "unknown"]), crossBorder: z.enum(["yes", "no", "unknown"]),
   privacyContactName: z.string().min(1), privacyContactRole: z.string().min(1), privacyContactChannel: z.string().min(1),
-  publicContactDepartment: z.string().trim().min(2).max(100), publicContactChannel: z.string().trim().min(3).max(300)
+  publicContactDepartment: z.string().trim().min(2).max(100), publicContactChannel: z.string().trim().min(2).max(300)
 }).superRefine((value, context) => {
   if (!hasCompleteCustomSubjectSelection(value.subjectCategories, value.customSubjectSelected)) {
     context.addIssue({ code: "custom", path: ["subjectCategories"], message: "选择其他主体后必须说明具体主体及相关场景。" });
@@ -32,6 +32,7 @@ export async function POST(request: Request) {
     upsertTask({ code: "ADD-FIRST-SCENARIO", title: "添加首个业务场景", description: "选择一项实际业务，确认怎样使用个人信息。", category: "我的业务", priority: "normal" });
     upsertTask({ code: "CREATE-FIRST-NOTICE", title: "建立首份个人信息处理规则", description: "根据已经确认的企业和业务情况生成并审核首份草稿。", category: "合规材料", priority: "normal" });
   }
-  addAuditEvent("enterprise.onboarded", `完成企业快速建档，路径判断：${result.status}`);
+  clearOnboardingDraft();
+  addAuditEvent("enterprise.onboarded", `完成机构快速建档，路径判断：${qualificationStatusLabel(result.status)}`);
   return NextResponse.json({ enterprise, qualification: result });
 }

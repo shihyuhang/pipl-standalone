@@ -431,7 +431,7 @@ export default function BusinessPage() {
 
     {editing && <div className="modal-backdrop" onClick={() => setEditing(null)}><section className="modal fact-modal" onClick={event => event.stopPropagation()}>
       <div className="modal-header"><div><p className="eyebrow">完善业务情况</p><h2>{activityDisplayName({ ...editing, remark: activityRemark })}</h2><p>按实际情况填写；企业档案中已有的统一联系渠道会自动带入，同一事实不必重复填写。</p></div><button className="icon-button" onClick={() => setEditing(null)}>×</button></div>
-      <label className="activity-remark-field"><span>场景备注 / 区分名称 <small>选填</small></span><div className="activity-remark-control"><input maxLength={200} value={activityRemark} onChange={event => setActivityRemark(event.target.value)} placeholder={`例如：${editing.name === "员工管理" ? "上海分公司正式员工" : editing.name === "消费者或会员" ? "小程序会员" : "华东区域或具体产品线"}`} /><em>同一类场景可以建立多条记录，用备注区分地区、产品、渠道或人群；不会改变系统对场景类型的判断。</em></div></label>
+      <label className="activity-remark-field"><span>内部备注 <small>选填</small></span><div className="activity-remark-control"><input maxLength={200} value={activityRemark} onChange={event => setActivityRemark(event.target.value)} placeholder={`例如：${editing.name === "员工管理" ? "上海分公司正式员工" : editing.name === "消费者或会员" ? "小程序会员" : "华东区域或具体产品线"}`} /><em>仅用于工作台、检查记录和待办中区分同类业务，不会写入对外告知、隐私政策或未成年人规则。对外展示名称请在生成材料时填写“材料名称”和“适用范围”。</em></div></label>
       <nav className="fact-wizard-nav" aria-label="业务情况填写步骤">
         {factSteps.map(step => <button type="button" key={step.number} className={factStep === step.number ? "active" : factStep > step.number ? "passed" : ""} onClick={() => setFactStep(step.number)}><span>{factStep > step.number ? "✓" : step.number}</span><div><strong>{step.title}</strong><small>{step.description}</small></div></button>)}
       </nav>

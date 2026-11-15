@@ -2,7 +2,9 @@ packages:
   - .
 
 onlyBuiltDependencies:
-  - esbuild
   - sharp
 
 confirmModulesPurge: false
+
+allowBuilds:
+  sharp: true

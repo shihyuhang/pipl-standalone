@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createAssessmentRun, getActivity, getEnterprise } from "@/lib/db";
+import { createAssessmentRun, getActivity, getEnterprise, listAssessments } from "@/lib/db";
 import { runScenarioTriage } from "@/lib/ai-gateway";
 import { isActivityReadyForTriage } from "@/lib/activity-facts";
 
@@ -12,6 +12,10 @@ export async function POST(request: Request) {
   if (!activity) return NextResponse.json({ message: "未找到该业务场景。" }, { status: 404 });
   if (!isActivityReadyForTriage(activity.facts)) {
     return NextResponse.json({ message: "请先完成业务情况确认，再开始AI快速分流。" }, { status: 409 });
+  }
+  const currentAssessment = listAssessments(activity.id).find(item => item.validity === "current");
+  if (currentAssessment && JSON.stringify(currentAssessment.factsSnapshot) === JSON.stringify(activity.facts)) {
+    return NextResponse.json({ ...currentAssessment, reused: true });
   }
   const enterprise = getEnterprise();
   const minimizedEnterpriseContext = {

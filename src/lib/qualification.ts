@@ -1,5 +1,17 @@
 import type { QualificationInput, QualificationResult } from "./types";
 
+const qualificationStatusLabels: Record<QualificationResult["status"], string> = {
+  not_assessed: "尚未完成路径判断",
+  eligible: "适用小型个人信息处理者路径",
+  conditional: "尚需补充确认",
+  needs_review: "需要专项复核",
+  out_of_scope: "超出小型处理者路径"
+};
+
+export function qualificationStatusLabel(status: QualificationResult["status"]): string {
+  return qualificationStatusLabels[status];
+}
+
 export function assessQualification(input: QualificationInput): QualificationResult {
   const reasons: string[] = [];
   const tasks: QualificationResult["tasks"] = [];

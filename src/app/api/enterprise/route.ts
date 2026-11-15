@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { addAuditEvent, getEnterprise, updateEnterprise, upsertTask } from "@/lib/db";
-import { assessQualification } from "@/lib/qualification";
+import { assessQualification, qualificationStatusLabel } from "@/lib/qualification";
 import { sensitiveCategoryCodes } from "@/lib/sensitive-info";
 
 export const runtime = "nodejs";
@@ -14,7 +14,7 @@ const schema = z.object({
   subjectCategories: z.array(z.string().trim().min(1).max(306)).max(20), sensitiveCategories: z.array(z.enum(sensitiveCategoryCodes)),
   minorsPossible: z.enum(["yes", "no", "unknown"]), crossBorder: z.enum(["yes", "no", "unknown"]),
   privacyContactName: z.string().min(1), privacyContactRole: z.string().min(1), privacyContactChannel: z.string().min(1),
-  publicContactDepartment: z.string().trim().min(2).max(100), publicContactChannel: z.string().trim().min(3).max(300)
+  publicContactDepartment: z.string().trim().min(2).max(100), publicContactChannel: z.string().trim().min(2).max(300)
 });
 
 // 更新单位基本信息；人数口径、处理角色、敏感情况等变化可能影响适用路径，因此同步重新评估。
@@ -25,6 +25,6 @@ export async function PUT(request: Request) {
   const result = assessQualification(input);
   const enterprise = updateEnterprise({ ...input, qualificationStatus: result.status, qualificationSummary: result.summary, onboardingCompleted: true });
   for (const task of result.tasks) upsertTask({ ...task, category: "适用判断" });
-  addAuditEvent("enterprise.updated", `更新单位基本信息，路径判断：${result.status}`);
+  addAuditEvent("enterprise.updated", `更新单位基本信息，路径判断：${qualificationStatusLabel(result.status)}`);
   return NextResponse.json({ enterprise, qualification: result });
 }

@@ -14,17 +14,38 @@ type Form = {
 const initial: Form = { legalName: "", orgType: "company", industry: "", businessModel: "B2B", ownership: "domestic", processingRole: "independent_processor", personCount: "", countVerified: false, subjectCategories: [], sensitiveCategories: [], minorsPossible: "no", crossBorder: "no", privacyContactName: "", privacyContactRole: "", privacyContactChannel: "", publicContactDepartment: "个人信息保护联系部门", publicContactChannel: "" };
 const industrySuggestions = ["软件和信息技术服务", "专业服务", "制造业", "批发和零售", "住宿和餐饮", "租赁和商务服务", "房地产和物业管理", "交通运输和物流", "教育培训", "医疗健康", "文化、体育和娱乐"];
 export default function OnboardingPage() {
-  const [step, setStep] = useState(1); const [form, setForm] = useState<Form>(initial); const [saving, setSaving] = useState(false); const [error, setError] = useState(""); const [showCustomSubject, setShowCustomSubject] = useState(false); const [customSubject, setCustomSubject] = useState(""); const router = useRouter();
+  const [step, setStep] = useState(1); const [form, setForm] = useState<Form>(initial); const [saving, setSaving] = useState(false); const [savedAt, setSavedAt] = useState<string | null>(null); const [error, setError] = useState(""); const [showCustomSubject, setShowCustomSubject] = useState(false); const [customSubject, setCustomSubject] = useState(""); const router = useRouter();
   useEffect(() => { fetch("/api/enterprise").then(r => r.json()).then(data => { if (data.onboardingCompleted) { const custom = getCustomSubjectDescription(data.subjectCategories || []); setForm({ legalName: data.legalName, orgType: data.orgType, industry: data.industry || "", businessModel: data.businessModel, ownership: data.ownership, processingRole: data.processingRole, personCount: data.personCount?.toString() || "", countVerified: data.countVerified, subjectCategories: data.subjectCategories, sensitiveCategories: data.sensitiveCategories, minorsPossible: data.minorsPossible, crossBorder: data.crossBorder, privacyContactName: data.privacyContactName, privacyContactRole: data.privacyContactRole, privacyContactChannel: data.privacyContactChannel, publicContactDepartment: data.publicContactDepartment || "个人信息保护联系部门", publicContactChannel: data.publicContactChannel || data.privacyContactChannel || "" }); setCustomSubject(custom); setShowCustomSubject(Boolean(custom) || data.subjectCategories.includes("other")); } }); }, []);
   const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm(old => ({ ...old, [key]: value }));
   const toggle = (key: "subjectCategories" | "sensitiveCategories", value: string) => set(key, form[key].includes(value) ? form[key].filter(v => v !== value) : [...form[key], value]);
   const selectedSubjects = mergeEnterpriseSubjectCategories(form.subjectCategories, showCustomSubject ? customSubject : "");
   const customSubjectMissing = showCustomSubject && customSubject.trim().length < 2;
-  const canContinue = step === 1 ? form.legalName.trim().length > 1 && form.industry.trim().length > 1 : step === 2 ? (form.personCount !== "" || !form.countVerified) && selectedSubjects.length > 0 && !customSubjectMissing : form.privacyContactName && form.privacyContactRole && form.privacyContactChannel && form.publicContactDepartment.trim().length > 1 && form.publicContactChannel.trim().length > 2;
+  const canContinue = step === 1 ? form.legalName.trim().length > 1 && form.industry.trim().length > 1 : step === 2 ? (form.personCount !== "" || !form.countVerified) && selectedSubjects.length > 0 && !customSubjectMissing : form.privacyContactName && form.privacyContactRole && form.privacyContactChannel && form.publicContactDepartment.trim().length > 1 && form.publicContactChannel.trim().length > 1;
   useEffect(() => { window.scrollTo({ top: 0, behavior: "smooth" }); }, [step]);
+  useEffect(() => {
+    fetch("/api/onboarding/draft").then(response => response.ok ? response.json() : { draft: null }).then(payload => {
+      if (!payload.draft) return;
+      setForm(current => ({ ...current, ...payload.draft.form }));
+      setCustomSubject(payload.draft.customSubject || "");
+      setShowCustomSubject(Boolean(payload.draft.showCustomSubject));
+      setStep(payload.draft.step || 1);
+      setSavedAt(payload.draft.savedAt || null);
+    }).catch(() => undefined);
+  }, []);
+  const saveDraft = async (targetStep: number) => {
+    setSaving(true); setError("");
+    const response = await fetch("/api/onboarding/draft", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ form, customSubject, showCustomSubject, step: targetStep }) });
+    const payload = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (!response.ok) { setError(payload.message || "草稿保存失败，请重试。"); return false; }
+    setSavedAt(payload.draft?.savedAt || new Date().toISOString());
+    return true;
+  };
+  const continueTo = async (targetStep: number) => { if (await saveDraft(targetStep)) setStep(targetStep); };
+  const saveAndLeave = async () => { if (await saveDraft(step)) router.push("/"); };
   const submit = async () => { setSaving(true); setError(""); const response = await fetch("/api/onboarding", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, customSubjectSelected: showCustomSubject, subjectCategories: mergeEnterpriseSubjectCategories(form.subjectCategories, showCustomSubject ? customSubject : ""), personCount: form.personCount === "" ? null : Number(form.personCount) }) }); if (response.ok) { router.push("/"); router.refresh(); } else { const body = await response.json(); setError(body.message || "请检查填写内容。"); setSaving(false); } };
   return <div className="onboarding-wrap">
-    <header className="onboarding-header"><div className="brand"><div className="brand-mark"><ShieldCheck /></div><div><strong>个保轻舟</strong><span>快速建立企业档案</span></div></div><button className="plain-button" onClick={() => router.push("/")}>保存稍后继续</button></header>
+    <header className="onboarding-header"><div className="brand"><div className="brand-mark"><ShieldCheck /></div><div><strong>个保轻舟</strong><span>{savedAt ? `${new Date(savedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} 已保存` : "快速建立企业档案"}</span></div></div><button className="plain-button" disabled={saving} onClick={() => void saveAndLeave()}>{saving ? "正在保存…" : "保存稍后继续"}</button></header>
     <div className="progress-wrap"><div className="progress-meta"><span>第 {step} 步，共 3 步</span><span>约 {4 - step} 分钟</span></div><div className="progress"><span style={{ width: `${step / 3 * 100}%` }} /></div></div>
     <main className="onboarding-card">
       {step === 1 && <><div className="step-icon"><Building2 /></div><p className="eyebrow">先了解贵单位</p><h1>贵单位主要做什么业务？</h1><p className="form-lead">这些信息只用于推荐适合的场景和问题，不会因为外资身份直接判断存在境外提供。</p>
@@ -45,7 +66,7 @@ export default function OnboardingPage() {
         <div className="contact-box"><strong>谁负责内部确认和后续办理？</strong><p>以下信息用于内部任务、复核和归档，不会自动写入对外材料。</p><div className="three-inputs"><label><span>姓名</span><input value={form.privacyContactName} onChange={e => set("privacyContactName", e.target.value)} placeholder="负责人姓名" /></label><label><span>岗位</span><input value={form.privacyContactRole} onChange={e => set("privacyContactRole", e.target.value)} placeholder="例如法务负责人" /></label><label><span>内部联系渠道</span><input value={form.privacyContactChannel} onChange={e => set("privacyContactChannel", e.target.value)} placeholder="工作邮箱或电话" /></label></div></div>
         <div className="contact-box public-contact-box"><strong>个人对外怎样提出权利请求？</strong><p>这部分会写入隐私政策、员工告知等对外材料。默认公开部门和统一渠道，不公开内部负责人的姓名。</p><div className="two-column-fields"><label><span>对外接收部门</span><input value={form.publicContactDepartment} onChange={e => set("publicContactDepartment", e.target.value)} placeholder="例如：法务与合规部" /></label><label><span>对外联系渠道</span><input value={form.publicContactChannel} onChange={e => set("publicContactChannel", e.target.value)} placeholder="例如：privacy@example.com 或权利请求页面" /></label></div></div></>}
       {error && <div className="alert danger">{error}</div>}
-      <footer className="form-actions">{step > 1 ? <button className="button secondary" onClick={() => setStep(step - 1)}><ArrowLeft size={17} /> 上一步</button> : <span />} {step < 3 ? <button className="button primary" disabled={!canContinue} onClick={() => setStep(step + 1)}>保存并继续 <ArrowRight size={17} /></button> : <button className="button primary" disabled={!canContinue || saving} onClick={submit}>{saving ? "正在建立档案…" : "确认并进入工作台"} <ArrowRight size={17} /></button>}</footer>
+      <footer className="form-actions">{step > 1 ? <button className="button secondary" disabled={saving} onClick={() => setStep(step - 1)}><ArrowLeft size={17} /> 上一步</button> : <span />} {step < 3 ? <button className="button primary" disabled={!canContinue || saving} onClick={() => void continueTo(step + 1)}>{saving ? "正在保存…" : "保存并继续"} <ArrowRight size={17} /></button> : <button className="button primary" disabled={!canContinue || saving} onClick={submit}>{saving ? "正在建立档案…" : "确认并进入工作台"} <ArrowRight size={17} /></button>}</footer>
     </main>
   </div>;
 }

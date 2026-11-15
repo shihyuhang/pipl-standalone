@@ -140,6 +140,9 @@ function getDb(): DatabaseSync {
   ensureColumn(instance, "enterprise", "industry", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(instance, "enterprise", "public_contact_department", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(instance, "enterprise", "public_contact_channel", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(instance, "enterprise", "onboarding_draft_json", "TEXT NOT NULL DEFAULT '{}'");
+  ensureColumn(instance, "enterprise", "onboarding_draft_step", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(instance, "enterprise", "onboarding_draft_saved_at", "TEXT");
   ensureColumn(instance, "task", "source_id", "TEXT");
   ensureColumn(instance, "task", "activity_id", "TEXT");
   ensureColumn(instance, "task", "handling_note", "TEXT NOT NULL DEFAULT ''");
@@ -336,6 +339,43 @@ export function updateEnterprise(profile: Omit<EnterpriseProfile, "id" | "update
     markDocumentsForEnterpriseChange(impact.reason, impact.changedFields, impact.affectedSections);
   }
   return getEnterprise();
+}
+
+export type OnboardingDraft = {
+  form: Record<string, unknown>;
+  customSubject: string;
+  showCustomSubject: boolean;
+  step: number;
+  savedAt: string | null;
+};
+
+export function getOnboardingDraft(): OnboardingDraft | null {
+  const row = getDb().prepare("SELECT onboarding_draft_json, onboarding_draft_step, onboarding_draft_saved_at FROM enterprise LIMIT 1").get() as Record<string, unknown>;
+  if (!row.onboarding_draft_saved_at) return null;
+  try {
+    const value = JSON.parse(String(row.onboarding_draft_json || "{}")) as Record<string, unknown>;
+    return {
+      form: value.form && typeof value.form === "object" ? value.form as Record<string, unknown> : {},
+      customSubject: String(value.customSubject || ""),
+      showCustomSubject: Boolean(value.showCustomSubject),
+      step: Math.max(1, Math.min(3, Number(row.onboarding_draft_step) || 1)),
+      savedAt: String(row.onboarding_draft_saved_at)
+    };
+  } catch { return null; }
+}
+
+export function saveOnboardingDraft(input: Omit<OnboardingDraft, "savedAt">): OnboardingDraft {
+  const savedAt = now();
+  getDb().prepare(`UPDATE enterprise SET onboarding_draft_json=?, onboarding_draft_step=?,
+    onboarding_draft_saved_at=?, updated_at=?`).run(
+      JSON.stringify({ form: input.form, customSubject: input.customSubject, showCustomSubject: input.showCustomSubject }),
+      Math.max(1, Math.min(3, input.step)), savedAt, savedAt
+    );
+  return { ...input, step: Math.max(1, Math.min(3, input.step)), savedAt };
+}
+
+export function clearOnboardingDraft() {
+  getDb().prepare("UPDATE enterprise SET onboarding_draft_json='{}', onboarding_draft_step=1, onboarding_draft_saved_at=NULL").run();
 }
 
 export function upsertTask(input: { code: string; title: string; description: string; priority?: string; category?: string; sourceType?: string; sourceId?: string; activityId?: string }) {
@@ -574,6 +614,21 @@ export function createDocument(input: { name: string; type: string; scope: strin
     VALUES (?, ?, 'V1', 'draft', ?, ?, ?, NULL, NULL, ?, ?, ?)`)
     .run(versionId, documentId, input.content, input.changeSummary || "建立首个草稿", createdAt, hashContent(input.content), JSON.stringify(buildDocumentFactsSnapshot(activityIds)), input.createdBy || "系统生成");
   addAuditEvent("document.created", `创建文档草稿：${input.name}`);
+  return getDocument(documentId)!;
+}
+
+export function resolveDocumentPendingFact(documentId: string, pendingFact: string): BusinessDocument {
+  const document = getDocument(documentId);
+  if (!document) throw new Error("DOCUMENT_NOT_FOUND");
+  const candidates = [...(document.metadata.aiPendingFacts || []), ...(document.metadata.pendingFacts || [])];
+  if (!candidates.includes(pendingFact)) throw new Error("PENDING_FACT_NOT_FOUND");
+  const metadata: DocumentMetadata = {
+    ...document.metadata,
+    resolvedPendingFacts: [...new Set([...(document.metadata.resolvedPendingFacts || []), pendingFact])]
+  };
+  getDb().prepare("UPDATE business_document SET metadata_json=?, updated_at=? WHERE id=?")
+    .run(JSON.stringify(metadata), now(), documentId);
+  addAuditEvent("document.pending_fact.resolved", `确认材料待核事实：${pendingFact}`);
   return getDocument(documentId)!;
 }
 

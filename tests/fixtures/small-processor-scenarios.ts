@@ -24,6 +24,7 @@ const completeFacts: ActivityFacts = {
   accessRoles: ["业务经办人员", "部门负责人"],
   systemOperators: ["本单位系统管理员", "云服务商"],
   retentionPeriod: "合作结束后三年删除；依法需要留存的合同材料限制其他用途",
+  retentionBasis: "合同履行、财务留档和争议处理需要",
   deletionMethod: "每季度由行政负责人核对到期记录，并在企业邮箱和CRM中删除",
   rightsChannel: "privacy@example.test",
   automatedDecision: "no",

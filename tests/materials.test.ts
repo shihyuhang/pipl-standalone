@@ -111,14 +111,114 @@ test("员工告知与候选人告知使用不同的处理范围说明", () => {
 });
 
 test("委托处理协议形成处理边界、安全事件和删除要求", () => {
+  const entrustedActivity: ProcessingActivity = {
+    ...activity,
+    facts: {
+      ...activity.facts,
+      externalProcessingRelationships: ["entrusted_processing"],
+      externalRecipientDetails: "示例云服务有限公司；security@vendor.example；仅按指示托管CRM联系人数据"
+    }
+  };
   const result = generateMaterialDraft({
     type: "processor_agreement", name: "个人信息委托处理协议", scope: "CRM云服务",
-    audience: "云服务商", enterprise, activities: [activity]
+    audience: "云服务商", enterprise, activities: [entrustedActivity]
   });
   assert.match(result, /仅按甲方书面指示/);
   assert.match(result, /客户与供应商联系/);
+  assert.match(result, /示例云服务有限公司/);
+  assert.match(result, /处理期限：合作期间，结束后保留3年/);
+  assert.match(result, /处理方式：/);
+  assert.match(result, /个人信息种类：/);
+  assert.match(result, /保护措施：/);
+  assert.doesNotMatch(result, /乙方或合作方：待填写/);
   assert.match(result, /返还、删除和证明/);
   assert.match(result, /安全事件/);
+});
+
+test("未成年人专门规则带入已确认的必要性、权益影响和保护措施", () => {
+  const minorActivity: ProcessingActivity = {
+    ...activity,
+    name: "少儿课程报名",
+    facts: {
+      ...activity.facts,
+      minorsInvolved: "yes",
+      sensitiveInformation: "yes",
+      sensitiveCategories: ["minor_under_14"],
+      sensitiveNecessity: "年龄用于匹配适龄课程，监护人联系方式用于取得授权",
+      sensitiveRightsImpact: "泄露可能导致儿童身份、学习和家庭关系暴露",
+      sensitiveProtectionMeasures: "儿童资料分区保存，仅课程服务人员访问并按期删除"
+    }
+  };
+  const result = generateMaterialDraft({ type: "minor_notice", name: "未成年人规则", scope: "少儿课程", audience: "未成年人及监护人", enterprise, activities: [minorActivity] });
+  assert.match(result, /年龄用于匹配适龄课程/);
+  assert.match(result, /儿童身份、学习和家庭关系暴露/);
+  assert.match(result, /儿童资料分区保存/);
+  assert.match(result, /监护人身份核验与同意/);
+  assert.match(result, /同意的更新、撤回和到期处理/);
+  assert.match(result, /安全保护与事件处置/);
+  assert.match(result, /未成年人个人信息保护负责人|承担该职责的岗位/);
+});
+
+test("对外材料不写入场景内部备注，并完整提示自动化决策权利", () => {
+  const result = generateMaterialDraft({
+    type: "privacy_notice", name: "隐私政策", scope: "会员服务", audience: "消费者",
+    enterprise,
+    activities: [{ ...activity, name: "会员服务", remark: "内部渠道代号-沪A", facts: { ...activity.facts, automatedDecision: "yes" } }]
+  });
+  assert.match(result, /会员服务/);
+  assert.doesNotMatch(result, /内部渠道代号-沪A/);
+  assert.match(result, /非针对个人特征的选项/);
+  assert.match(result, /拒绝仅通过自动化决策作出决定/);
+  assert.match(result, /安全保护与事件处置/);
+  assert.match(result, /版本号：待填写/);
+});
+
+test("外部单位说明末尾标点不会与模板分号叠加", () => {
+  const result = generateMaterialDraft({
+    type: "privacy_notice", name: "隐私政策", scope: "会员服务", audience: "消费者", enterprise,
+    activities: [{ ...activity, facts: { ...activity.facts, recipients: ["短信服务商"], externalProcessingRelationships: ["entrusted_processing"], externalRecipientDetails: "示例短信服务商；仅发送验证码。" } }]
+  });
+  assert.doesNotMatch(result, /。；/);
+  assert.match(result, /示例短信服务商；仅发送验证码；处理目的/);
+});
+
+test("出境告知带入境外接收方及法定告知要素", () => {
+  const outboundActivity: ProcessingActivity = {
+    ...activity,
+    name: "境外总部支持",
+    facts: {
+      ...activity.facts,
+      crossBorderAccess: "yes",
+      recipients: ["境外总部"],
+      externalProcessingRelationships: ["independent_provision"],
+      externalRecipientDetails: "Example Global Pte. Ltd.；privacy@example-global.test；新加坡支持团队处理工单"
+    }
+  };
+  const result = generateMaterialDraft({ type: "cross_border_notice_consent", name: "出境告知", scope: "境外支持", audience: "相关个人", enterprise, activities: [outboundActivity] });
+  assert.match(result, /Example Global Pte\. Ltd\./);
+  assert.match(result, /privacy@example-global\.test/);
+  assert.match(result, /出境目的：/);
+  assert.match(result, /处理方式：/);
+  assert.match(result, /个人信息种类：/);
+  assert.match(result, /向境外接收方行使权利的方式：/);
+  assert.doesNotMatch(result, /境外接收方.*待逐项确认/);
+});
+
+test("敏感个人信息单独同意书写明处理方式和保存期限", () => {
+  const sensitiveActivity: ProcessingActivity = {
+    ...activity,
+    facts: {
+      ...activity.facts,
+      sensitiveInformation: "yes",
+      sensitiveCategories: ["medical_health"],
+      sensitiveNecessity: "诊断证明用于完成保险理赔",
+      sensitiveRightsImpact: "泄露可能造成健康隐私暴露",
+      sensitiveProtectionMeasures: "仅福利专员访问并加密传输"
+    }
+  };
+  const result = generateMaterialDraft({ type: "sensitive_consent", name: "敏感信息单独同意", scope: "保险理赔", audience: "员工", enterprise, activities: [sensitiveActivity] });
+  assert.match(result, /处理方式：/);
+  assert.match(result, /保存期限：合作期间，结束后保留3年/);
 });
 
 test("权利请求、同意和事件记录均提供可直接使用的留痕字段", () => {

@@ -12,7 +12,7 @@ const enterprise = {
 } as EnterpriseProfile;
 
 const activity = {
-  id: "a1", scenarioCode: "B2B-CONTACT", name: "客户联系", description: "合同沟通", status: "active", completeness: 1, createdAt: "2026-08-16",
+  id: "a1", scenarioCode: "B2B-CONTACT", name: "客户联系", description: "合同沟通", status: "active", completeness: 1, createdAt: "2026-08-16", updatedAt: "2026-08-16",
   facts: { dataSubjects: ["客户联系人"], informationTypes: ["姓名", "电话"], purposes: ["合同沟通"], collectionChannels: ["客户提供"], systems: ["CRM"], recipients: [], approximatePersonCount: 100, accessRoles: ["销售"], systemOperators: ["管理员"], retentionPeriod: "合作结束后三年", deletionMethod: "到期删除", rightsChannel: "privacy@example.com", automatedDecision: "no", sensitiveInformation: "no", minorsInvolved: "no", crossBorderAccess: "no", notes: "", confirmedAt: "2026-08-16" }
 } as ProcessingActivity;
 
@@ -23,7 +23,7 @@ test("AI完整草稿使用所选服务并返回正文与待确认事项", async 
   let requestedUrl = ""; let requestBody = ""; let authorization = "";
   const fetchMock = (async (url: string | URL | Request, init?: RequestInit) => {
     requestedUrl = String(url); requestBody = String(init?.body || ""); authorization = String((init?.headers as Record<string, string>)?.Authorization || "");
-    return new Response(JSON.stringify({ id: "run-1", choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ content: `# 【单位名称】业务联系人个人信息告知\n\n联系渠道：【联系渠道】\n\n${"完整正文。".repeat(60)}`, pending_facts: ["确认服务商名称"], summary: "根据已确认事实形成草稿" }) } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ id: "run-1", choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ content: `# 【单位名称】${definition.name}\n\n适用对象：${definition.defaultAudience}\n适用范围：${definition.defaultScope}\n业务名称：客户联系\n使用的个人信息：姓名、电话\n处理目的：合同沟通\n联系渠道：【联系渠道】\n\n${"完整正文。".repeat(60)}`, pending_facts: ["确认服务商名称"], summary: "根据已确认事实形成草稿" }) } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
   }) as typeof fetch;
   const result = await callMaterialDraftAi({ name: definition.name, scope: definition.defaultScope, audience: definition.defaultAudience, definition, enterprise, activities: [activity], baselineDraft: "# 基础模板\n\n单位：示例科技有限公司\n\n联系：privacy@example.com" }, config, fetchMock, 1000);
   assert.equal(requestedUrl, "https://example.test/v1/chat/completions");
@@ -53,6 +53,37 @@ test("提交预览采用默认最小字段并且不展示可恢复的真实值",
   assert.ok(withNotes.redactionLabels.includes("手机号码"));
   assert.ok(withNotes.redactionLabels.includes("固定电话号码"));
   assert.ok(withNotes.redactionLabels.includes("自由文本中的姓名"));
+});
+
+test("取消具体字段后基础模板也不会绕过字段选择发送明细", () => {
+  const detailed = { ...activity, facts: { ...activity.facts, informationDetails: "身份证照片、出生日期、监护人手机号" } };
+  const preview = buildMaterialAiTransferPreview({
+    name: definition.name,
+    scope: definition.defaultScope,
+    audience: definition.defaultAudience,
+    definition,
+    enterprise,
+    activities: [detailed],
+    baselineDraft: "# 基础模板\n\n- 使用的个人信息：身份证照片、出生日期、监护人手机号\n- 使用目的：合同沟通"
+  });
+  const serialized = JSON.stringify(preview.payload);
+  assert.ok(preview.excludedFields.includes("activity.informationDetails"));
+  assert.doesNotMatch(serialized, /身份证照片|出生日期|监护人手机号/);
+  assert.match(serialized, /姓名|电话/);
+});
+
+test("对外材料的 AI 上下文不发送内部备注", () => {
+  const preview = buildMaterialAiTransferPreview({
+    name: definition.name,
+    scope: definition.defaultScope,
+    audience: definition.defaultAudience,
+    definition,
+    enterprise,
+    activities: [{ ...activity, remark: "内部客户代号-北区A组" }],
+    baselineDraft: "# 基础模板"
+  });
+  assert.doesNotMatch(JSON.stringify(preview.payload), /内部客户代号-北区A组/);
+  assert.match(JSON.stringify(preview.payload), /客户联系/);
 });
 
 test("AI上下文使用受控的敏感个人信息类别名称", () => {
@@ -94,4 +125,9 @@ test("AI删除必要占位符时拒绝结果，避免交付材料缺少本地数
 test("AI返回截断内容时拒绝作为材料草稿", async () => {
   const fetchMock = (async () => new Response(JSON.stringify({ choices: [{ finish_reason: "length", message: { content: "{}" } }] }), { status: 200, headers: { "Content-Type": "application/json" } })) as typeof fetch;
   await assert.rejects(() => callMaterialDraftAi({ name: definition.name, scope: definition.defaultScope, audience: definition.defaultAudience, definition, enterprise, activities: [activity], baselineDraft: "基础模板" }, config, fetchMock, 1000), /截断/);
+});
+
+test("AI改写或遗漏用户指定范围时拒绝结果", async () => {
+  const fetchMock = (async () => new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ content: `# 【单位名称】${definition.name}\n\n适用对象：其他人群\n业务名称：客户联系\n使用的个人信息：姓名、电话\n处理目的：合同沟通\n联系渠道：【联系渠道】\n\n${"完整正文。".repeat(60)}`, pending_facts: [], summary: "草稿" }) } }] }), { status: 200, headers: { "Content-Type": "application/json" } })) as typeof fetch;
+  await assert.rejects(() => callMaterialDraftAi({ name: definition.name, scope: "华东客户业务", audience: "客户经办人", definition, enterprise, activities: [activity], baselineDraft: "单位：示例科技有限公司；联系：privacy@example.com" }, config, fetchMock, 1000), /未忠实保留已确认输入/);
 });
