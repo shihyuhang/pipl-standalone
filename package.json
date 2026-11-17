@@ -1,8 +1,13 @@
 {
-  "name": "pipl-small-processor-mvp",
+  "name": "pipl-standalone",
   "version": "0.3.3",
   "type": "module",
   "private": true,
+  "description": "面向小型个人信息处理者的本地优先个人信息保护工作台",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shihyuhang/pipl-standalone.git"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

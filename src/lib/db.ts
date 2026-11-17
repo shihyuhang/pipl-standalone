@@ -13,7 +13,9 @@ import { normalizeSensitiveCategoryCodes, sensitiveCategoryLabels } from "./sens
 import { activityDisplayName } from "./activity-label.ts";
 import { findDocumentPublicationRisks } from "./document-publication.ts";
 
-const databasePath = resolve(process.cwd(), process.env.PIPL_DATABASE_PATH || "./data/pipl-mvp.db");
+const legacyDatabasePath = resolve(process.cwd(), "./data/pipl-mvp.db");
+const defaultDatabasePath = existsSync(legacyDatabasePath) ? legacyDatabasePath : resolve(process.cwd(), "./data/pipl-standalone.db");
+const databasePath = resolve(process.cwd(), process.env.PIPL_DATABASE_PATH || defaultDatabasePath);
 mkdirSync(dirname(databasePath), { recursive: true });
 
 const globalForDb = globalThis as unknown as { piplDb?: DatabaseSync };
